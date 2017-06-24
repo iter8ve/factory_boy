@@ -23,14 +23,26 @@ from __future__ import unicode_literals
 
 from . import base
 import warnings
+import sqlalchemy
 
 SESSION_PERSISTENCE_COMMIT = 'commit'
 SESSION_PERSISTENCE_FLUSH = 'flush'
+SESSION_PERSISTENCE_MERGE = 'merge'
+SESSION_PERSISTENCE_CHECK_AND_MERGE = 'check'
+SESSION_PERSISTENCE_GET_OR_ADD = 'get'
+SESSION_PERSISTENCE_ADD = 'add'
+
 VALID_SESSION_PERSISTENCE_TYPES = [
     None,
     SESSION_PERSISTENCE_COMMIT,
     SESSION_PERSISTENCE_FLUSH,
+    SESSION_PERSISTENCE_MERGE,
+    SESSION_PERSISTENCE_CHECK_AND_MERGE,
+    SESSION_PERSISTENCE_GET_OR_ADD,
+    SESSION_PERSISTENCE_ADD
 ]
+
+from sqlalchemy import inspect
 
 
 class SQLAlchemyOptions(base.FactoryOptions):
@@ -71,7 +83,18 @@ class SQLAlchemyOptions(base.FactoryOptions):
                 inherit=True,
                 checker=self._check_force_flush,
             ),
+
+            base.OptionDefault(
+                'sqlalchemy_update_existing',
+                False, inherit=True
+            )
         ]
+
+def attr_dict(instance):
+    return {
+        k: v for k, v in instance.__dict__.items()
+            if not k.startswith('_sa')
+    }
 
 
 class SQLAlchemyModelFactory(base.Factory):
@@ -81,6 +104,31 @@ class SQLAlchemyModelFactory(base.Factory):
 
     class Meta:
         abstract = True
+
+    @staticmethod
+    def find_existing(session, obj, model_cls):
+        constraints = [
+            c for c in model_cls.__table__.constraints
+                if isinstance(c, sqlalchemy.UniqueConstraint)
+        ]
+        for const in constraints:
+            for col in const.columns:
+                attr = getattr(obj, col.key, None)
+                if attr:
+                    matching_col = getattr(model_cls, col.key, None)
+                    if matching_col:
+                        existing = session.query(model_cls).\
+                            filter(matching_col==attr).first()
+                        if existing:
+                            return existing
+
+    @staticmethod
+    def update_existing(session, obj, existing):
+        for k, v in attr_dict(existing).items():
+            obj_attr = getattr(obj, k, None)
+            if obj_attr and obj_attr != v:
+                setattr(existing, k, obj_attr)
+        return existing
 
     @classmethod
     def _create(cls, model_class, *args, **kwargs):
@@ -93,9 +141,33 @@ class SQLAlchemyModelFactory(base.Factory):
         obj = model_class(*args, **kwargs)
         if session is None:
             raise RuntimeError("No session provided.")
-        session.add(obj)
-        if session_persistence == SESSION_PERSISTENCE_FLUSH:
+
+        if session_persistence == SESSION_PERSISTENCE_MERGE:
+            obj = session.merge(obj)
+            session.commit()
+        elif session_persistence in \
+                ('check', SESSION_PERSISTENCE_CHECK_AND_MERGE):
+            existing = cls.find_existing(session, obj, model_class)
+            if existing:
+                if cls._meta.sqlalchemy_update_existing:
+                    existing = cls.update_existing(session, obj, existing)
+                    existing = session.merge(existing)
+                    session.flush()
+                return existing
+            obj = session.merge(obj)
+            session.flush()
+        elif session_persistence == SESSION_PERSISTENCE_GET_OR_ADD:
+            existing = cls.find_existing(session, obj, model_class)
+            if existing:
+                return existing
+            else:
+                session.add(obj)
+                session.commit()
+        elif session_persistence == SESSION_PERSISTENCE_FLUSH:
             session.flush()
         elif session_persistence == SESSION_PERSISTENCE_COMMIT:
             session.commit()
+        elif session_persistence == SESSION_PERSISTENCE_ADD:
+            session.add(obj)
+
         return obj
