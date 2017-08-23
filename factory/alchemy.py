@@ -159,6 +159,7 @@ class SQLAlchemyModelFactory(base.Factory):
         elif session_persistence == SESSION_PERSISTENCE_GET_OR_ADD:
             existing = cls.find_existing(session, obj, model_class)
             if existing:
+                session.merge(existing)
                 return existing
             else:
                 session.add(obj)
