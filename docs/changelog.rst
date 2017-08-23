@@ -1,6 +1,54 @@
 ChangeLog
 =========
 
+2.9.3 (unreleased)
+------------------
+
+- Nothing changed yet.
+
+.. _v2.9.2:
+
+2.9.2 (2017-08-03)
+------------------
+
+*Bugfix:*
+
+    - Fix declaration corruption bug when a factory defined `foo__bar__baz=1` and a caller
+      provided a `foo__bar=x` parameter at call time: this got merged into the factory's base
+      declarations.
+
+.. _v2.9.1:
+
+2.9.1 (2017-08-02)
+------------------
+
+*Bugfix:*
+
+    - Fix packaging issues (see https://github.com/zestsoftware/zest.releaser/issues/212)
+    - Don't crash when debugging PostGenerationDeclaration
+
+.. _v2.9.0:
+
+2.9.0 (2017-07-30)
+------------------
+
+This version brings massive changes to the core engine, thus reducing the number of
+corner cases and weird behaviourrs.
+
+*New:*
+
+    - :issue:`275`: `factory.fuzzy` and `factory.faker` now use the same random seed.
+    - Add :class:`factory.Maybe`, which chooses among two possible declarations based
+      on another field's value (powers the :class:`~factory.Trait` feature).
+    - :class:`~factory.PostGenerationMethodCall` only allows to pass one positional argument; use keyword arguments for
+      extra parameters.
+
+*Deprecation:*
+
+    - `factory.fuzzy.get_random_state` is deprecated, `factory.random.get_random_state` should be used instead.
+    - `factory.fuzzy.set_random_state` is deprecated, `factory.random.set_random_state` should be used instead.
+    - `factory.fuzzy.reseed_random` is deprecated, `factory.random.reseed_random` should be used instead.
+
 .. _v2.8.1:
 
 2.8.1 (2016-12-17)
@@ -279,8 +327,8 @@ This takes care of all ``FACTORY_FOR`` occurences; the files containing other at
 
     - Add :class:`~factory.fuzzy.FuzzyDate` thanks to `saulshanabrook <https://github.com/saulshanabrook>`_
     - Add :class:`~factory.fuzzy.FuzzyDateTime` and :class:`~factory.fuzzy.FuzzyNaiveDateTime`.
-    - Add a :attr:`~factory.containers.LazyStub.factory_parent` attribute to the
-      :class:`~factory.containers.LazyStub` passed to :class:`~factory.LazyAttribute`, in order to access
+    - Add a :attr:`~factory.builder.Resolver.factory_parent` attribute to the
+      :class:`~factory.builder.Resolver` passed to :class:`~factory.LazyAttribute`, in order to access
       fields defined in wrapping factories.
     - Move :class:`~factory.django.DjangoModelFactory` and :class:`~factory.mogo.MogoFactory`
       to their own modules (:mod:`factory.django` and :mod:`factory.mogo`)

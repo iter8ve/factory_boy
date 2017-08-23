@@ -1,65 +1,49 @@
 # -*- coding: utf-8 -*-
-# Copyright (c) 2010 Mark Sandstrom
-# Copyright (c) 2011-2015 Raphaël Barrois
-#
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-# THE SOFTWARE.
+# Copyright: See the LICENSE file.
 
 from __future__ import unicode_literals
 
 import itertools
 import logging
 
+from . import enums
 from . import compat
+from . import errors
 from . import utils
 
 
 logger = logging.getLogger('factory.generate')
 
 
-class OrderedDeclaration(object):
+class BaseDeclaration(utils.OrderedBase):
     """A factory declaration.
 
-    Ordered declarations mark an attribute as needing lazy evaluation.
-    This allows them to refer to attributes defined by other OrderedDeclarations
+    Declarations mark an attribute as needing lazy evaluation.
+    This allows them to refer to attributes defined by other BaseDeclarations
     in the same factory.
     """
 
-    def evaluate(self, sequence, obj, create, extra=None, containers=()):
+    def evaluate(self, instance, step, extra):
         """Evaluate this declaration.
 
         Args:
-            sequence (int): the current sequence counter to use when filling
-                the current instance
-            obj (containers.LazyStub): The object holding currently computed
+            instance (builder.Resolver): The object holding currently computed
                 attributes
-            containers (list of containers.LazyStub): The chain of SubFactory
-                which led to building this object.
-            create (bool): whether the model class should be 'built' or
-                'created'
-            extra (DeclarationDict or None): extracted key/value extracted from
-                the attribute prefix
+            step: a factory.builder.BuildStep
+            extra (dict): additional, call-time added kwargs
+                for the step.
         """
         raise NotImplementedError('This is an abstract method')
 
 
-class LazyFunction(OrderedDeclaration):
-    """Simplest OrderedDeclaration computed by calling the given function.
+class OrderedDeclaration(BaseDeclaration):
+    """Compatibility"""
+
+    # FIXME(rbarrois)
+
+
+class LazyFunction(BaseDeclaration):
+    """Simplest BaseDeclaration computed by calling the given function.
 
     Attributes:
         function (function): a function without arguments and
@@ -70,13 +54,13 @@ class LazyFunction(OrderedDeclaration):
         super(LazyFunction, self).__init__(*args, **kwargs)
         self.function = function
 
-    def evaluate(self, sequence, obj, create, extra=None, containers=()):
-        logger.debug("LazyFunction: Evaluating %s on %s", utils.log_repr(self.function), utils.log_repr(obj))
+    def evaluate(self, instance, step, extra):
+        logger.debug("LazyFunction: Evaluating %s on %s", utils.log_repr(self.function), utils.log_repr(step))
         return self.function()
 
 
-class LazyAttribute(OrderedDeclaration):
-    """Specific OrderedDeclaration computed using a lambda.
+class LazyAttribute(BaseDeclaration):
+    """Specific BaseDeclaration computed using a lambda.
 
     Attributes:
         function (function): a function, expecting the current LazyStub and
@@ -87,9 +71,9 @@ class LazyAttribute(OrderedDeclaration):
         super(LazyAttribute, self).__init__(*args, **kwargs)
         self.function = function
 
-    def evaluate(self, sequence, obj, create, extra=None, containers=()):
-        logger.debug("LazyAttribute: Evaluating %s on %s", utils.log_repr(self.function), utils.log_repr(obj))
-        return self.function(obj)
+    def evaluate(self, instance, step, extra):
+        logger.debug("LazyAttribute: Evaluating %s on %s", utils.log_repr(self.function), utils.log_repr(instance))
+        return self.function(instance)
 
 
 class _UNSPECIFIED(object):
@@ -125,8 +109,8 @@ def deepgetattr(obj, name, default=_UNSPECIFIED):
             return default
 
 
-class SelfAttribute(OrderedDeclaration):
-    """Specific OrderedDeclaration copying values from other fields.
+class SelfAttribute(BaseDeclaration):
+    """Specific BaseDeclaration copying values from other fields.
 
     If the field name starts with two dots or more, the lookup will be anchored
     in the related 'parent'.
@@ -147,12 +131,12 @@ class SelfAttribute(OrderedDeclaration):
         self.attribute_name = attribute_name
         self.default = default
 
-    def evaluate(self, sequence, obj, create, extra=None, containers=()):
+    def evaluate(self, instance, step, extra):
         if self.depth > 1:
             # Fetching from a parent
-            target = containers[self.depth - 2]
+            target = step.chain[self.depth - 1]
         else:
-            target = obj
+            target = instance
 
         logger.debug("SelfAttribute: Picking attribute %r on %s", self.attribute_name, utils.log_repr(target))
         return deepgetattr(target, self.attribute_name, self.default)
@@ -165,7 +149,7 @@ class SelfAttribute(OrderedDeclaration):
         )
 
 
-class Iterator(OrderedDeclaration):
+class Iterator(BaseDeclaration):
     """Fill this value using the values returned by an iterator.
 
     Warning: the iterator should not end !
@@ -185,7 +169,7 @@ class Iterator(OrderedDeclaration):
         else:
             self.iterator_builder = lambda: utils.ResetableIterator(iterator)
 
-    def evaluate(self, sequence, obj, create, extra=None, containers=()):
+    def evaluate(self, instance, step, extra):
         # Begin unrolling as late as possible.
         # This helps with ResetableIterator(MyModel.objects.all())
         if self.iterator is None:
@@ -202,8 +186,8 @@ class Iterator(OrderedDeclaration):
         self.iterator.reset()
 
 
-class Sequence(OrderedDeclaration):
-    """Specific OrderedDeclaration to use for 'sequenced' fields.
+class Sequence(BaseDeclaration):
+    """Specific BaseDeclaration to use for 'sequenced' fields.
 
     These fields are typically used to generate increasing unique values.
 
@@ -218,9 +202,9 @@ class Sequence(OrderedDeclaration):
         self.function = function
         self.type = type
 
-    def evaluate(self, sequence, obj, create, extra=None, containers=()):
-        logger.debug("Sequence: Computing next value of %r for seq=%s", self.function, sequence)
-        return self.function(self.type(sequence))
+    def evaluate(self, instance, step, extra):
+        logger.debug("Sequence: Computing next value of %r for seq=%s", self.function, step.sequence)
+        return self.function(self.type(step.sequence))
 
 
 class LazyAttributeSequence(Sequence):
@@ -232,14 +216,14 @@ class LazyAttributeSequence(Sequence):
         type (function): A function converting an integer into the expected kind
             of counter for the 'function' attribute.
     """
-    def evaluate(self, sequence, obj, create, extra=None, containers=()):
+    def evaluate(self, instance, step, extra):
         logger.debug(
             "LazyAttributeSequence: Computing next value of %r for seq=%s, obj=%s",
-            self.function, sequence, utils.log_repr(obj))
-        return self.function(obj, self.type(sequence))
+            self.function, step.sequence, utils.log_repr(instance))
+        return self.function(instance, self.type(step.sequence))
 
 
-class ContainerAttribute(OrderedDeclaration):
+class ContainerAttribute(BaseDeclaration):
     """Variant of LazyAttribute, also receives the containers of the object.
 
     Attributes:
@@ -253,7 +237,7 @@ class ContainerAttribute(OrderedDeclaration):
         self.function = function
         self.strict = strict
 
-    def evaluate(self, sequence, obj, create, extra=None, containers=()):
+    def evaluate(self, instance, step, extra):
         """Evaluate the current ContainerAttribute.
 
         Args:
@@ -263,15 +247,17 @@ class ContainerAttribute(OrderedDeclaration):
                 being evaluated in a chain, each item being a future field of
                 next one.
         """
-        if self.strict and not containers:
+        # Strip the current instance from the chain
+        chain = step.chain[1:]
+        if self.strict and not chain:
             raise TypeError(
                 "A ContainerAttribute in 'strict' mode can only be used "
                 "within a SubFactory.")
 
-        return self.function(obj, containers)
+        return self.function(instance, chain)
 
 
-class ParameteredAttribute(OrderedDeclaration):
+class ParameteredAttribute(BaseDeclaration):
     """Base class for attributes expecting parameters.
 
     Attributes:
@@ -299,7 +285,7 @@ class ParameteredAttribute(OrderedDeclaration):
 
         return containers
 
-    def evaluate(self, sequence, obj, create, extra=None, containers=()):
+    def evaluate(self, instance, step, extra):
         """Evaluate the current definition and fill its attributes.
 
         Uses attributes definition in the following order:
@@ -307,23 +293,19 @@ class ParameteredAttribute(OrderedDeclaration):
         - additional values defined when instantiating the containing factory
 
         Args:
-            create (bool): whether the parent factory is being 'built' or
-                'created'
-            extra (containers.DeclarationDict): extra values that should
-                override the defaults
-            containers (list of LazyStub): List of LazyStub for the chain of
-                factories being evaluated, the calling stub being first.
+            instance (builder.Resolver): The object holding currently computed
+                attributes
+            step: a factory.builder.BuildStep
+            extra (dict): additional, call-time added kwargs
+                for the step.
         """
         defaults = dict(self.defaults)
         if extra:
             defaults.update(extra)
-        if self.CONTAINERS_FIELD:
-            containers = self._prepare_containers(obj, containers)
-            defaults[self.CONTAINERS_FIELD] = containers
 
-        return self.generate(sequence, obj, create, defaults)
+        return self.generate(step, defaults)
 
-    def generate(self, sequence, obj, create, params):  # pragma: no cover
+    def generate(self, step, params):
         """Actually generate the related attribute.
 
         Args:
@@ -384,6 +366,7 @@ class SubFactory(ParameteredAttribute):
     """
 
     EXTEND_CONTAINERS = True
+    FORCE_SEQUENCE = False
 
     def __init__(self, factory, **kwargs):
         super(SubFactory, self).__init__(**kwargs)
@@ -393,64 +376,87 @@ class SubFactory(ParameteredAttribute):
         """Retrieve the wrapped factory.Factory subclass."""
         return self.factory_wrapper.get()
 
-    def generate(self, sequence, obj, create, params):
+    def generate(self, step, params):
         """Evaluate the current definition and fill its attributes.
 
         Args:
-            create (bool): whether the subfactory should call 'build' or
-                'create'
-            params (containers.DeclarationDict): extra values that should
-                override the wrapped factory's defaults
+            step: a factory.builder.BuildStep
+            params (dict): additional, call-time added kwargs
+                for the step.
         """
         subfactory = self.get_factory()
         logger.debug(
             "SubFactory: Instantiating %s.%s(%s), create=%r",
             subfactory.__module__, subfactory.__name__,
             utils.log_pprint(kwargs=params),
-            create,
+            step,
         )
-        return subfactory.simple_generate(create, **params)
+        force_sequence = step.sequence if self.FORCE_SEQUENCE else None
+        return step.recurse(subfactory, params, force_sequence=force_sequence)
 
 
 class Dict(SubFactory):
     """Fill a dict with usual declarations."""
 
+    FORCE_SEQUENCE = True
+
     def __init__(self, params, dict_factory='factory.DictFactory'):
         super(Dict, self).__init__(dict_factory, **dict(params))
-
-    def generate(self, sequence, obj, create, params):
-        dict_factory = self.get_factory()
-        logger.debug("Dict: Building dict(%s)", utils.log_pprint(kwargs=params))
-        return dict_factory.simple_generate(
-            create,
-            __sequence=sequence,
-            **params)
 
 
 class List(SubFactory):
     """Fill a list with standard declarations."""
 
+    FORCE_SEQUENCE = True
+
     def __init__(self, params, list_factory='factory.ListFactory'):
         params = dict((str(i), v) for i, v in enumerate(params))
         super(List, self).__init__(list_factory, **params)
-
-    def generate(self, sequence, obj, create, params):
-        list_factory = self.get_factory()
-        logger.debug(
-            "List: Building list(%s)",
-            utils.log_pprint(args=[v for _i, v in sorted(params.items())]),
-        )
-        return list_factory.simple_generate(
-            create,
-            __sequence=sequence,
-            **params)
 
 
 # Parameters
 # ==========
 
 
-class ComplexParameter(object):
+class Skip(object):
+    def __bool__(self):
+        return False
+
+    # Py2 compatibility
+    __nonzero__ = __bool__
+
+
+SKIP = Skip()
+
+
+class Maybe(BaseDeclaration):
+    def __init__(self, decider, yes_declaration=SKIP, no_declaration=SKIP):
+        self.decider = decider
+        self.yes = yes_declaration
+        self.no = no_declaration
+
+    def evaluate(self, instance, step, extra):
+        if isinstance(self.decider, BaseDeclaration):
+            choice = self.decider.evaluate(instance=instance, step=step, extra={})
+        else:
+            choice = getattr(instance, self.decider, None)
+        target = self.yes if choice else self.no
+
+        if isinstance(target, BaseDeclaration):
+            return target.evaluate(
+                instance=instance,
+                step=step,
+                extra=extra,
+            )
+        else:
+            # Flat value
+            return target
+
+    def __repr__(self):
+        return 'Maybe(%r, yes=%r, no=%r)' % (self.decider, self.yes, self.no)
+
+
+class Parameter(utils.OrderedBase):
     """A complex parameter, to be used in a Factory.Params section.
 
     Must implement:
@@ -458,7 +464,7 @@ class ComplexParameter(object):
     - Optionally, a get_revdeps() function (to compute other parameters it may alter)
     """
 
-    def compute(self, field_name, declarations):
+    def as_declarations(self, field_name, declarations):
         """Compute the overrides for this parameter.
 
         Args:
@@ -475,82 +481,69 @@ class ComplexParameter(object):
         return []
 
 
-class Trait(ComplexParameter):
+class SimpleParameter(Parameter):
+    def __init__(self, value):
+        self.value = value
+
+    def as_declarations(self, field_name, declarations):
+        return {
+            field_name: self.value,
+        }
+
+    @classmethod
+    def wrap(cls, value):
+        if not isinstance(value, Parameter):
+            return cls(value)
+        return value
+
+
+class Trait(Parameter):
     """The simplest complex parameter, it enables a bunch of new declarations based on a boolean flag."""
     def __init__(self, **overrides):
+        super(Trait, self).__init__()
         self.overrides = overrides
 
-    def compute(self, field_name, declarations):
-        if declarations.get(field_name):
-            return self.overrides
-        else:
-            return {}
+    def as_declarations(self, field_name, declarations):
+        overrides = {}
+        for maybe_field, new_value in self.overrides.items():
+            overrides[maybe_field] = Maybe(
+                decider=SelfAttribute(
+                    '%s.%s' % (
+                        '.' * maybe_field.count(enums.SPLITTER),
+                        field_name,
+                    ),
+                    default=False,
+                ),
+                yes_declaration=new_value,
+                no_declaration=declarations.get(maybe_field, SKIP),
+            )
+        return overrides
 
     def get_revdeps(self, parameters):
         """This might alter fields it's injecting."""
         return [param for param in parameters if param in self.overrides]
+
+    def __repr__(self):
+        return '%s(%s)' % (
+            self.__class__.__name__,
+            ', '.join('%s=%r' % t for t in self.overrides.items())
+        )
 
 
 # Post-generation
 # ===============
 
 
-class ExtractionContext(object):
-    """Private class holding all required context from extraction to postgen."""
-    def __init__(self, value=None, did_extract=False, extra=None, for_field=''):
-        self.value = value
-        self.did_extract = did_extract
-        self.extra = extra or {}
-        self.for_field = for_field
-
-    def __repr__(self):
-        return 'ExtractionContext(%r, %r, %r)' % (
-            self.value,
-            self.did_extract,
-            self.extra,
-        )
-
-
-class PostGenerationDeclaration(object):
+class PostGenerationDeclaration(utils.OrderedBase):
     """Declarations to be called once the model object has been generated."""
 
-    creation_counter = 0
-    """Global creation counter of the declaration."""
-
-    def __init__(self, *args, **kwargs):
-        self.creation_counter = PostGenerationDeclaration.creation_counter
-        PostGenerationDeclaration.creation_counter += 1
-
-    def extract(self, name, attrs):
-        """Extract relevant attributes from a dict.
-
-        Args:
-            name (str): the name at which this PostGenerationDeclaration was
-                defined in the declarations
-            attrs (dict): the attribute dict from which values should be
-                extracted
-
-        Returns:
-            (object, dict): a tuple containing the attribute at 'name' (if
-                provided) and a dict of extracted attributes
-        """
-        try:
-            extracted = attrs.pop(name)
-            did_extract = True
-        except KeyError:
-            extracted = None
-            did_extract = False
-
-        kwargs = utils.extract_dict(name, attrs)
-        return ExtractionContext(extracted, did_extract, kwargs, name)
-
-    def call(self, obj, create, extraction_context):  # pragma: no cover
+    def call(self, instance, step, context):  # pragma: no cover
         """Call this hook; no return value is expected.
 
         Args:
             obj (object): the newly generated object
             create (bool): whether the object was 'built' or 'created'
-            extraction_context: An ExtractionContext containing values
+            context: a builder.PostGenerationContext containing values
                 extracted from the containing factory's declaration
         """
         raise NotImplementedError()
@@ -562,19 +555,19 @@ class PostGeneration(PostGenerationDeclaration):
         super(PostGeneration, self).__init__()
         self.function = function
 
-    def call(self, obj, create, extraction_context):
+    def call(self, instance, step, context):
         logger.debug(
             "PostGeneration: Calling %s.%s(%s)",
             self.function.__module__,
             self.function.__name__,
             utils.log_pprint(
-                (obj, create, extraction_context.value),
-                extraction_context.extra,
+                (instance, step),
+                context._asdict(),
             ),
         )
+        create = step.builder.strategy == enums.CREATE_STRATEGY
         return self.function(
-            obj, create,
-            extraction_context.value, **extraction_context.extra)
+            instance, create, context.value, **context.extra)
 
 
 class RelatedFactory(PostGenerationDeclaration):
@@ -598,30 +591,34 @@ class RelatedFactory(PostGenerationDeclaration):
         """Retrieve the wrapped factory.Factory subclass."""
         return self.factory_wrapper.get()
 
-    def call(self, obj, create, extraction_context):
+    def call(self, instance, step, context):
         factory = self.get_factory()
 
-        if extraction_context.did_extract:
+        if context.value_provided:
             # The user passed in a custom value
             logger.debug(
                 "RelatedFactory: Using provided %s instead of generating %s.%s.",
-                utils.log_repr(extraction_context.value),
+                utils.log_repr(context.value),
                 factory.__module__, factory.__name__,
             )
-            return extraction_context.value
+            return context.value
 
         passed_kwargs = dict(self.defaults)
-        passed_kwargs.update(extraction_context.extra)
+        passed_kwargs.update(context.extra)
         if self.name:
-            passed_kwargs[self.name] = obj
+            passed_kwargs[self.name] = instance
 
         logger.debug(
             "RelatedFactory: Generating %s.%s(%s)",
             factory.__module__,
             factory.__name__,
-            utils.log_pprint((create,), passed_kwargs),
+            utils.log_pprint((step,), passed_kwargs),
         )
-        return factory.simple_generate(create, **passed_kwargs)
+        return step.recurse(factory, passed_kwargs)
+
+
+class NotProvided:
+    pass
 
 
 class PostGenerationMethodCall(PostGenerationDeclaration):
@@ -639,27 +636,31 @@ class PostGenerationMethodCall(PostGenerationDeclaration):
     """
     def __init__(self, method_name, *args, **kwargs):
         super(PostGenerationMethodCall, self).__init__()
+        if len(args) > 1:
+            raise errors.InvalidDeclarationError(
+                "A PostGenerationMethodCall can only handle 1 positional argument; "
+                "please provide other parameters through keyword arguments."
+            )
         self.method_name = method_name
-        self.method_args = args
+        self.method_arg = args[0] if args else NotProvided
         self.method_kwargs = kwargs
 
-    def call(self, obj, create, extraction_context):
-        if not extraction_context.did_extract:
-            passed_args = self.method_args
-
-        elif len(self.method_args) <= 1:
-            # Max one argument expected
-            passed_args = (extraction_context.value,)
+    def call(self, instance, step, context):
+        if not context.value_provided:
+            if self.method_arg is NotProvided:
+                args = tuple()
+            else:
+                args = tuple([self.method_arg])
         else:
-            passed_args = tuple(extraction_context.value)
+            args = tuple([context.value])
 
-        passed_kwargs = dict(self.method_kwargs)
-        passed_kwargs.update(extraction_context.extra)
-        method = getattr(obj, self.method_name)
+        kwargs = dict(self.method_kwargs)
+        kwargs.update(context.extra)
+        method = getattr(instance, self.method_name)
         logger.debug(
             "PostGenerationMethodCall: Calling %s.%s(%s)",
-            utils.log_repr(obj),
+            utils.log_repr(instance),
             self.method_name,
-            utils.log_pprint(passed_args, passed_kwargs),
+            utils.log_pprint(args, kwargs),
         )
-        return method(*passed_args, **passed_kwargs)
+        return method(*args, **kwargs)

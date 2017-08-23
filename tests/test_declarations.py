@@ -1,40 +1,22 @@
 # -*- coding: utf-8 -*-
-# Copyright (c) 2010 Mark Sandstrom
-# Copyright (c) 2011-2015 Raphaël Barrois
-#
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-# THE SOFTWARE.
+# Copyright: See the LICENSE file.
 
 import datetime
 import itertools
 
 from factory import base
 from factory import declarations
+from factory import errors
 from factory import helpers
 
 from .compat import mock, unittest
-from . import tools
+from . import utils
 
 
 class OrderedDeclarationTestCase(unittest.TestCase):
     def test_errors(self):
-        decl = declarations.OrderedDeclaration()
-        self.assertRaises(NotImplementedError, decl.evaluate, None, {}, False)
+        with self.assertRaises(NotImplementedError):
+            utils.evaluate_declaration(declarations.OrderedDeclaration())
 
 
 class DigTestCase(unittest.TestCase):
@@ -96,55 +78,64 @@ class SelfAttributeTestCase(unittest.TestCase):
 class IteratorTestCase(unittest.TestCase):
     def test_cycle(self):
         it = declarations.Iterator([1, 2])
-        self.assertEqual(1, it.evaluate(0, None, False))
-        self.assertEqual(2, it.evaluate(1, None, False))
-        self.assertEqual(1, it.evaluate(2, None, False))
-        self.assertEqual(2, it.evaluate(3, None, False))
+        self.assertEqual(1, utils.evaluate_declaration(it, force_sequence=0))
+        self.assertEqual(2, utils.evaluate_declaration(it, force_sequence=1))
+        self.assertEqual(1, utils.evaluate_declaration(it, force_sequence=2))
+        self.assertEqual(2, utils.evaluate_declaration(it, force_sequence=3))
 
     def test_no_cycling(self):
         it = declarations.Iterator([1, 2], cycle=False)
-        self.assertEqual(1, it.evaluate(0, None, False))
-        self.assertEqual(2, it.evaluate(1, None, False))
-        self.assertRaises(StopIteration, it.evaluate, 2, None, False)
+        self.assertEqual(1, utils.evaluate_declaration(it, force_sequence=0))
+        self.assertEqual(2, utils.evaluate_declaration(it, force_sequence=1))
+        self.assertRaises(StopIteration, utils.evaluate_declaration, it, force_sequence=2)
 
     def test_reset_cycle(self):
         it = declarations.Iterator([1, 2])
-        self.assertEqual(1, it.evaluate(0, None, False))
-        self.assertEqual(2, it.evaluate(1, None, False))
-        self.assertEqual(1, it.evaluate(2, None, False))
-        self.assertEqual(2, it.evaluate(3, None, False))
-        self.assertEqual(1, it.evaluate(4, None, False))
+        self.assertEqual(1, utils.evaluate_declaration(it, force_sequence=0))
+        self.assertEqual(2, utils.evaluate_declaration(it, force_sequence=1))
+        self.assertEqual(1, utils.evaluate_declaration(it, force_sequence=2))
+        self.assertEqual(2, utils.evaluate_declaration(it, force_sequence=3))
+        self.assertEqual(1, utils.evaluate_declaration(it, force_sequence=4))
         it.reset()
-        self.assertEqual(1, it.evaluate(5, None, False))
-        self.assertEqual(2, it.evaluate(6, None, False))
+        self.assertEqual(1, utils.evaluate_declaration(it, force_sequence=5))
+        self.assertEqual(2, utils.evaluate_declaration(it, force_sequence=6))
 
     def test_reset_no_cycling(self):
         it = declarations.Iterator([1, 2], cycle=False)
-        self.assertEqual(1, it.evaluate(0, None, False))
-        self.assertEqual(2, it.evaluate(1, None, False))
-        self.assertRaises(StopIteration, it.evaluate, 2, None, False)
+        self.assertEqual(1, utils.evaluate_declaration(it, force_sequence=0))
+        self.assertEqual(2, utils.evaluate_declaration(it, force_sequence=1))
+        self.assertRaises(StopIteration, utils.evaluate_declaration, it, force_sequence=2)
         it.reset()
-        self.assertEqual(1, it.evaluate(0, None, False))
-        self.assertEqual(2, it.evaluate(1, None, False))
-        self.assertRaises(StopIteration, it.evaluate, 2, None, False)
+        self.assertEqual(1, utils.evaluate_declaration(it, force_sequence=0))
+        self.assertEqual(2, utils.evaluate_declaration(it, force_sequence=1))
+        self.assertRaises(StopIteration, utils.evaluate_declaration, it, force_sequence=2)
 
     def test_getter(self):
         it = declarations.Iterator([(1, 2), (1, 3)], getter=lambda p: p[1])
-        self.assertEqual(2, it.evaluate(0, None, False))
-        self.assertEqual(3, it.evaluate(1, None, False))
-        self.assertEqual(2, it.evaluate(2, None, False))
-        self.assertEqual(3, it.evaluate(3, None, False))
+        self.assertEqual(2, utils.evaluate_declaration(it, force_sequence=0))
+        self.assertEqual(3, utils.evaluate_declaration(it, force_sequence=1))
+        self.assertEqual(2, utils.evaluate_declaration(it, force_sequence=2))
+        self.assertEqual(3, utils.evaluate_declaration(it, force_sequence=3))
 
 
 class PostGenerationDeclarationTestCase(unittest.TestCase):
-    def test_extract_no_prefix(self):
-        decl = declarations.PostGenerationDeclaration()
+    def test_post_generation(self):
+        call_params = []
+        def foo(*args, **kwargs):
+            call_params.append(args)
+            call_params.append(kwargs)
 
-        context = decl.extract('foo',
-                {'foo': 13, 'foo__bar': 42})
-        self.assertTrue(context.did_extract)
-        self.assertEqual(context.value, 13)
-        self.assertEqual(context.extra, {'bar': 42})
+        helpers.build(
+            dict,
+            foo=declarations.PostGeneration(foo),
+            foo__bar=42,
+            blah=42,
+            blah__baz=1,
+        )
+
+        self.assertEqual(2, len(call_params))
+        self.assertEqual(3, len(call_params[0]))  # instance, step, context.value
+        self.assertEqual({'bar': 42}, call_params[1])
 
     def test_decorator_simple(self):
         call_params = []
@@ -153,16 +144,16 @@ class PostGenerationDeclarationTestCase(unittest.TestCase):
             call_params.append(args)
             call_params.append(kwargs)
 
-        context = foo.extract('foo',
-            {'foo': 13, 'foo__bar': 42, 'blah': 42, 'blah__baz': 1})
-        self.assertTrue(context.did_extract)
-        self.assertEqual(13, context.value)
-        self.assertEqual({'bar': 42}, context.extra)
+        helpers.build(
+            dict,
+            foo=foo,
+            foo__bar=42,
+            blah=42,
+            blah__baz=1,
+        )
 
-        # No value returned.
-        foo.call(None, False, context)
         self.assertEqual(2, len(call_params))
-        self.assertEqual((None, False, 13), call_params[0])
+        self.assertEqual(3, len(call_params[0]))  # instance, step, context.value
         self.assertEqual({'bar': 42}, call_params[1])
 
 
@@ -208,77 +199,61 @@ class FactoryWrapperTestCase(unittest.TestCase):
 
 
 class PostGenerationMethodCallTestCase(unittest.TestCase):
-    def setUp(self):
-        self.obj = mock.MagicMock()
-
-    def ctx(self, value=None, force_value=False, extra=None):
-        return declarations.ExtractionContext(
-            value,
-            bool(value) or force_value,
-            extra,
-        )
+    def build(self, declaration, **params):
+        f = helpers.make_factory(mock.MagicMock, post=declaration)
+        return f(**params)
 
     def test_simplest_setup_and_call(self):
-        decl = declarations.PostGenerationMethodCall('method')
-        decl.call(self.obj, False, self.ctx())
-        self.obj.method.assert_called_once_with()
+        obj = self.build(
+            declarations.PostGenerationMethodCall('method'),
+        )
+        obj.method.assert_called_once_with()
 
     def test_call_with_method_args(self):
-        decl = declarations.PostGenerationMethodCall(
-                'method', 'data')
-        decl.call(self.obj, False, self.ctx())
-        self.obj.method.assert_called_once_with('data')
+        obj = self.build(
+            declarations.PostGenerationMethodCall( 'method', 'data'),
+        )
+        obj.method.assert_called_once_with('data')
 
     def test_call_with_passed_extracted_string(self):
-        decl = declarations.PostGenerationMethodCall(
-                'method')
-        decl.call(self.obj, False, self.ctx('data'))
-        self.obj.method.assert_called_once_with('data')
+        obj = self.build(
+            declarations.PostGenerationMethodCall('method'),
+            post='data',
+        )
+        obj.method.assert_called_once_with('data')
 
     def test_call_with_passed_extracted_int(self):
-        decl = declarations.PostGenerationMethodCall('method')
-        decl.call(self.obj, False, self.ctx(1))
-        self.obj.method.assert_called_once_with(1)
+        obj = self.build(
+            declarations.PostGenerationMethodCall('method'),
+            post=1,
+        )
+        obj.method.assert_called_once_with(1)
 
     def test_call_with_passed_extracted_iterable(self):
-        decl = declarations.PostGenerationMethodCall('method')
-        decl.call(self.obj, False, self.ctx((1, 2, 3)))
-        self.obj.method.assert_called_once_with((1, 2, 3))
+        obj = self.build(
+            declarations.PostGenerationMethodCall('method'),
+            post=(1, 2, 3),
+        )
+        obj.method.assert_called_once_with((1, 2, 3))
 
     def test_call_with_method_kwargs(self):
-        decl = declarations.PostGenerationMethodCall(
-                'method', data='data')
-        decl.call(self.obj, False, self.ctx())
-        self.obj.method.assert_called_once_with(data='data')
+        obj = self.build(
+            declarations.PostGenerationMethodCall('method', data='data'),
+        )
+        obj.method.assert_called_once_with(data='data')
 
     def test_call_with_passed_kwargs(self):
-        decl = declarations.PostGenerationMethodCall('method')
-        decl.call(self.obj, False, self.ctx(extra={'data': 'other'}))
-        self.obj.method.assert_called_once_with(data='other')
+        obj = self.build(
+            declarations.PostGenerationMethodCall('method'),
+            post__data='other',
+        )
+        obj.method.assert_called_once_with(data='other')
 
     def test_multi_call_with_multi_method_args(self):
-        decl = declarations.PostGenerationMethodCall(
-                'method', 'arg1', 'arg2')
-        decl.call(self.obj, False, self.ctx())
-        self.obj.method.assert_called_once_with('arg1', 'arg2')
-
-    def test_multi_call_with_passed_multiple_args(self):
-        decl = declarations.PostGenerationMethodCall(
-                'method', 'arg1', 'arg2')
-        decl.call(self.obj, False, self.ctx(('param1', 'param2', 'param3')))
-        self.obj.method.assert_called_once_with('param1', 'param2', 'param3')
-
-    def test_multi_call_with_passed_tuple(self):
-        decl = declarations.PostGenerationMethodCall(
-                'method', 'arg1', 'arg2')
-        decl.call(self.obj, False, self.ctx((('param1', 'param2'),)))
-        self.obj.method.assert_called_once_with(('param1', 'param2'))
-
-    def test_multi_call_with_kwargs(self):
-        decl = declarations.PostGenerationMethodCall(
-                'method', 'arg1', 'arg2')
-        decl.call(self.obj, False, self.ctx(extra={'x': 2}))
-        self.obj.method.assert_called_once_with('arg1', 'arg2', x=2)
+        with self.assertRaises(errors.InvalidDeclarationError):
+            obj = self.build(
+                declarations.PostGenerationMethodCall('method', 'arg1', 'arg2'),
+            )
 
 
 class PostGenerationOrdering(unittest.TestCase):
@@ -309,9 +284,7 @@ class PostGenerationOrdering(unittest.TestCase):
             def aa(*args, **kwargs):
                 postgen_results.append('aa')
 
-        postgen_names = [
-            k for k, v in Ordered._meta.sorted_postgen_declarations
-        ]
+        postgen_names = Ordered._meta.post_declarations.sorted()
         self.assertEqual(postgen_names, ['a', 'z', 'a1', 'zz', 'aa'])
 
         # Test generation happens in desired order

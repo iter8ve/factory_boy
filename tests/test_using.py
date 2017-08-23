@@ -1,23 +1,6 @@
 # -*- coding: utf-8 -*-
-# Copyright (c) 2011-2015 Raphaël Barrois
-#
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-# THE SOFTWARE.
+# Copyright: See the LICENSE file.
+
 """Tests using factory."""
 
 
@@ -31,7 +14,7 @@ import factory
 from factory import errors
 
 from .compat import is_python2, unittest
-from . import tools
+from . import utils
 
 
 class TestObject(object):
@@ -1198,6 +1181,7 @@ class TraitTestCase(unittest.TestCase):
                 even = factory.Trait(two=True, four=True)
                 odd = factory.Trait(one=True, three=True, five=True)
                 full = factory.Trait(even=True, odd=True)
+                override = factory.Trait(even=True, two=False)
 
         # Setting "full" should enable all fields.
         obj = TestObjectFactory(full=True)
@@ -1217,6 +1201,11 @@ class TraitTestCase(unittest.TestCase):
         self.assertEqual(obj3.as_dict(),
             dict(one=True, two=None, three=True, four=None, five=True))
 
+        # Setting override should override two and set it to False
+        obj = TestObjectFactory(override=True)
+        self.assertEqual(obj.as_dict(),
+            dict(one=None, two=False, three=None, four=True, five=None))
+
     def test_prevent_cyclic_traits(self):
 
         with self.assertRaises(errors.CyclicDefinitionError):
@@ -1227,6 +1216,27 @@ class TraitTestCase(unittest.TestCase):
                 class Params:
                     a = factory.Trait(b=True, one=True)
                     b = factory.Trait(a=True, two=True)
+
+    def test_deep_traits(self):
+        class TestObjectFactory(factory.Factory):
+            class Meta:
+                model = TestObject
+
+        class WrapperFactory(factory.Factory):
+            class Meta:
+                model = TestObject
+
+            class Params:
+                deep_one = factory.Trait(
+                    one=1,
+                    two__one=2,
+                )
+
+            two = factory.SubFactory(TestObjectFactory)
+
+        wrapper = WrapperFactory(deep_one=True)
+        self.assertEqual(1, wrapper.one)
+        self.assertEqual(2, wrapper.two.one)
 
 
 class SubFactoryTestCase(unittest.TestCase):
@@ -1429,6 +1439,54 @@ class SubFactoryTestCase(unittest.TestCase):
         self.assertEqual(obj, outer.wrapped)
         self.assertEqual('four', outer.wrapped.two)
 
+    def test_deep_nested_subfactory(self):
+        counter = iter(range(100))
+
+        class Node(object):
+            def __init__(self, label, child=None):
+                self.id = next(counter)
+                self.label = label
+                self.child = child
+
+        class LeafFactory(factory.Factory):
+            class Meta:
+                model = Node
+            label = 'leaf'
+
+        class BranchFactory(factory.Factory):
+            class Meta:
+                model = Node
+            label = 'branch'
+            child = factory.SubFactory(LeafFactory)
+
+        class TreeFactory(factory.Factory):
+            class Meta:
+                model = Node
+            label = 'tree'
+            child = factory.SubFactory(BranchFactory)
+            child__child__label = 'magic-leaf'
+
+        leaf = LeafFactory()
+        # Magic corruption did happen here once:
+        # forcing child__child=X while another part already set another value
+        # on child__child__label meant that the value passed for child__child
+        # was merged into the factory's inner declaration dict.
+        mtree_1 = TreeFactory(child__child=leaf)
+        mtree_2 = TreeFactory()
+
+        self.assertEqual(0, mtree_1.child.child.id)
+        self.assertEqual('leaf', mtree_1.child.child.label)
+        self.assertEqual(1, mtree_1.child.id)
+        self.assertEqual('branch', mtree_1.child.label)
+        self.assertEqual(2, mtree_1.id)
+        self.assertEqual('tree', mtree_1.label)
+        self.assertEqual(3, mtree_2.child.child.id)
+        self.assertEqual('magic-leaf', mtree_2.child.child.label)
+        self.assertEqual(4, mtree_2.child.id)
+        self.assertEqual('branch', mtree_2.child.label)
+        self.assertEqual(5, mtree_2.id)
+        self.assertEqual('tree', mtree_2.label)
+
     def test_sub_factory_and_inheritance(self):
         """Test inheriting from a factory with subfactories, overriding."""
         class TestObject(object):
@@ -1546,19 +1604,19 @@ class SubFactoryTestCase(unittest.TestCase):
         class TestModelFactory(FakeModelFactory):
             class Meta:
                 model = TestModel
-            one = 3
-            two = factory.ContainerAttribute(lambda obj, containers: len(containers or []), strict=True)
+            sample_int = 3
+            container_len = factory.ContainerAttribute(lambda obj, containers: len(containers or []), strict=True)
 
         class TestModel2Factory(FakeModelFactory):
             class Meta:
                 model = TestModel2
-            one = 1
-            two = factory.SubFactory(TestModelFactory, one=1)
+            sample_int = 1
+            descendant = factory.SubFactory(TestModelFactory, sample_int=1)
 
         obj = TestModel2Factory.build()
-        self.assertEqual(1, obj.one)
-        self.assertEqual(1, obj.two.one)
-        self.assertEqual(1, obj.two.two)
+        self.assertEqual(1, obj.sample_int)
+        self.assertEqual(1, obj.descendant.sample_int)
+        self.assertEqual(1, obj.descendant.container_len)
 
         self.assertRaises(TypeError, TestModelFactory.build)
 
@@ -1569,10 +1627,10 @@ class SubFactoryTestCase(unittest.TestCase):
         class TestModelFactory(FakeModelFactory):
             class Meta:
                 model = TestModel
-            one = 3
+            sample_int = 3
 
             @factory.container_attribute
-            def two(self, containers):
+            def container_len(self, containers):
                 if containers:
                     return len(containers)
                 return 42
@@ -1580,17 +1638,17 @@ class SubFactoryTestCase(unittest.TestCase):
         class TestModel2Factory(FakeModelFactory):
             class Meta:
                 model = TestModel2
-            one = 1
-            two = factory.SubFactory(TestModelFactory, one=1)
+            sample_int = 1
+            descendant = factory.SubFactory(TestModelFactory, sample_int=1)
 
         obj = TestModel2Factory.build()
-        self.assertEqual(1, obj.one)
-        self.assertEqual(1, obj.two.one)
-        self.assertEqual(1, obj.two.two)
+        self.assertEqual(1, obj.sample_int)
+        self.assertEqual(1, obj.descendant.sample_int)
+        self.assertEqual(1, obj.descendant.container_len)
 
         obj = TestModelFactory()
-        self.assertEqual(3, obj.one)
-        self.assertEqual(42, obj.two)
+        self.assertEqual(3, obj.sample_int)
+        self.assertEqual(42, obj.container_len)
 
 
 class IteratorTestCase(unittest.TestCase):
@@ -1608,7 +1666,7 @@ class IteratorTestCase(unittest.TestCase):
             self.assertEqual(i + 10, obj.one)
 
     @unittest.skipUnless(is_python2, "Scope bleeding fixed in Python3+")
-    @tools.disable_warnings
+    @utils.disable_warnings
     def test_iterator_list_comprehension_scope_bleeding(self):
         class TestObjectFactory(factory.Factory):
             class Meta:
@@ -1620,7 +1678,7 @@ class IteratorTestCase(unittest.TestCase):
 
         self.assertRaises(TypeError, TestObjectFactory.build)
 
-    @tools.disable_warnings
+    @utils.disable_warnings
     def test_iterator_list_comprehension_protected(self):
         class TestObjectFactory(factory.Factory):
             class Meta:
@@ -1976,6 +2034,38 @@ class PostGenerationTestCase(unittest.TestCase):
 
         obj = TestObjectFactory.build(bar=42, bar__foo=13)
 
+    def test_post_generation_override_with_extra(self):
+        class TestObjectFactory(factory.Factory):
+            class Meta:
+                model = TestObject
+
+            one = 1
+
+            @factory.post_generation
+            def incr_one(self, _create, override, **extra):
+                multiplier = extra.get('multiplier', 1)
+                if override is None:
+                    override = 1
+                self.one += override * multiplier
+
+        obj = TestObjectFactory.build()
+        self.assertEqual(1 + 1 * 1, obj.one)
+        obj = TestObjectFactory.build(incr_one=2)
+        self.assertEqual(1 + 2 * 1, obj.one)
+        obj = TestObjectFactory.build(incr_one__multiplier=4)
+        self.assertEqual(1 + 1 * 4, obj.one)
+        obj = TestObjectFactory.build(incr_one=2, incr_one__multiplier=5)
+        self.assertEqual(1 + 2 * 5, obj.one)
+
+        # Passing extras through inherited params
+        class OtherTestObjectFactory(TestObjectFactory):
+            class Params:
+                incr_one__multiplier = 4
+
+        obj = OtherTestObjectFactory.build()
+        self.assertEqual(1 + 1 * 4, obj.one)
+
+
     def test_post_generation_method_call(self):
         calls = []
 
@@ -2132,7 +2222,7 @@ class PostGenerationTestCase(unittest.TestCase):
                 obj.related = self
                 self.one = one
                 self.two = two
-                self.three = obj
+                self.related = obj
 
         class TestRelatedObjectFactory(factory.Factory):
             class Meta:
@@ -2150,7 +2240,7 @@ class PostGenerationTestCase(unittest.TestCase):
             one = 3
             two = 2
             three = factory.RelatedFactory(TestRelatedObjectFactory, 'obj')
-            three__two = factory.SelfAttribute('blah')
+            three__two = factory.SelfAttribute('..blah')
 
         obj = TestObjectFactory.build()
         self.assertEqual(3, obj.one)
@@ -2222,12 +2312,36 @@ class CircularTestCase(unittest.TestCase):
         self.assertIsNone(b.foo.bar.foo.bar)
 
 
+class RepeatableRandomSeedFakerTests(unittest.TestCase):
+    def test_same_seed_is_used_between_fuzzy_and_faker_generators(self):
+        class StudentFactory(factory.Factory):
+            one = factory.fuzzy.FuzzyDate(datetime.date(1950, 1, 1), )
+            two = factory.Faker('name')
+            three = factory.Faker('name', locale='it')
+            four = factory.Faker('name')
+
+            class Meta:
+                model = TestObject
+
+        seed = "seed1"
+        factory.random.reseed_random(seed)
+        students_1 = (StudentFactory(), StudentFactory())
+
+        factory.random.reseed_random(seed)
+        students_2 = (StudentFactory(), StudentFactory())
+
+        self.assertEqual(students_1[0].one, students_2[0].one)
+        self.assertEqual(students_1[0].two, students_2[0].two)
+        self.assertEqual(students_1[0].three, students_2[0].three)
+        self.assertEqual(students_1[0].four, students_2[0].four)
+
+
 class SelfReferentialTests(unittest.TestCase):
     def test_no_parent(self):
         from .cyclic import self_ref
 
-        obj = self_ref.TreeElementFactory(parent=None)
-        self.assertIsNone(obj.parent)
+        obj = self_ref.TreeElementFactory(parent__parent__parent=None)
+        self.assertIsNone(obj.parent.parent.parent)
 
     def test_deep(self):
         from .cyclic import self_ref

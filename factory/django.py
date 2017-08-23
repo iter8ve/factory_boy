@@ -1,24 +1,5 @@
 # -*- coding: utf-8 -*-
-# Copyright (c) 2010 Mark Sandstrom
-# Copyright (c) 2011-2015 Raphaël Barrois
-#
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-# THE SOFTWARE.
+# Copyright: See the LICENSE file.
 
 
 """factory_boy extensions for use with the Django framework."""
@@ -77,10 +58,6 @@ def _lazy_load_get_model():
     if django is None:
         def _get_model(app, model):
             raise import_failure
-
-    elif django.VERSION[:2] < (1, 7):
-        from django.db.models.loading import get_model as _get_model
-
     else:
         from django import apps as django_apps
         _get_model = django_apps.apps.get_model
@@ -105,6 +82,13 @@ class DjangoOptions(base.FactoryOptions):
             # concrete subclass => don't reuse the counter.
             return self.factory
         return counter_reference
+
+    def get_model_class(self):
+        if is_string(self.model) and '.' in self.model:
+            app, model_name = self.model.split('.', 1)
+            self.model = get_model(app, model_name)
+
+        return self.model
 
 
 class DjangoModelFactory(base.Factory):
@@ -167,8 +151,8 @@ class DjangoModelFactory(base.Factory):
             key_fields[field] = kwargs.pop(field)
         key_fields['defaults'] = kwargs
 
-        obj, _created = manager.get_or_create(*args, **key_fields)
-        return obj
+        instance, _created = manager.get_or_create(*args, **key_fields)
+        return instance
 
     @classmethod
     def _create(cls, model_class, *args, **kwargs):
@@ -181,22 +165,21 @@ class DjangoModelFactory(base.Factory):
         return manager.create(*args, **kwargs)
 
     @classmethod
-    def _after_postgeneration(cls, obj, create, results=None):
+    def _after_postgeneration(cls, instance, create, results=None):
         """Save again the instance if creating and at least one hook ran."""
         if create and results:
             # Some post-generation hooks ran, and may have modified us.
-            obj.save()
+            instance.save()
 
 
-class FileField(declarations.ParameteredAttribute):
+class FileField(declarations.Dict):
     """Helper to fill in django.db.models.FileField from a Factory."""
 
     DEFAULT_FILENAME = 'example.dat'
-    EXTEND_CONTAINERS = True
 
     def __init__(self, **defaults):
         require_django()
-        super(FileField, self).__init__(**defaults)
+        super(FileField, self).__init__(defaults)
 
     def _make_data(self, params):
         """Create data for the field."""
@@ -239,11 +222,9 @@ class FileField(declarations.ParameteredAttribute):
         filename = params.get('filename', default_filename)
         return filename, content
 
-    def generate(self, sequence, obj, create, params):
+    def generate(self, step, params):
         """Fill in the field."""
-
-        params.setdefault('__sequence', sequence)
-        params = base.DictFactory.simple_generate(create, **params)
+        params = super(FileField, self).generate(step, params)
         filename, content = self._make_content(params)
         return django_files.File(content.file, filename)
 
@@ -311,12 +292,11 @@ class mute_signals(object):
                          receivers)
 
             signal.receivers = receivers
-            if django.VERSION[:2] >= (1, 6):
-                with signal.lock:
-                    # Django uses some caching for its signals.
-                    # Since we're bypassing signal.connect and signal.disconnect,
-                    # we have to keep messing with django's internals.
-                    signal.sender_receivers_cache.clear()
+            with signal.lock:
+                # Django uses some caching for its signals.
+                # Since we're bypassing signal.connect and signal.disconnect,
+                # we have to keep messing with django's internals.
+                signal.sender_receivers_cache.clear()
         self.paused = {}
 
     def copy(self):

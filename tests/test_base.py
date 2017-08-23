@@ -1,29 +1,11 @@
 # -*- coding: utf-8 -*-
-# Copyright (c) 2010 Mark Sandstrom
-# Copyright (c) 2011-2015 Raphaël Barrois
-#
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-# THE SOFTWARE.
+# Copyright: See the LICENSE file.
 
 import warnings
 
 from factory import base
 from factory import declarations
+from factory import enums
 from factory import errors
 
 from .compat import unittest
@@ -125,14 +107,14 @@ class OptionsTests(unittest.TestCase):
         self.assertIsNone(AbstractFactory._meta.model)
         self.assertEqual((), AbstractFactory._meta.inline_args)
         self.assertEqual((), AbstractFactory._meta.exclude)
-        self.assertEqual(base.CREATE_STRATEGY, AbstractFactory._meta.strategy)
+        self.assertEqual(enums.CREATE_STRATEGY, AbstractFactory._meta.strategy)
 
         # Non-declarative attributes
-        self.assertEqual({}, AbstractFactory._meta.declarations)
-        self.assertEqual({}, AbstractFactory._meta.postgen_declarations)
+        self.assertEqual({}, AbstractFactory._meta.pre_declarations.as_dict())
+        self.assertEqual({}, AbstractFactory._meta.post_declarations.as_dict())
         self.assertEqual(AbstractFactory, AbstractFactory._meta.factory)
         self.assertEqual(base.Factory, AbstractFactory._meta.base_factory)
-        self.assertEqual(AbstractFactory, AbstractFactory._meta.counter_reference)
+        self.assertEqual(AbstractFactory._meta, AbstractFactory._meta.counter_reference)
 
     def test_declaration_collecting(self):
         lazy = declarations.LazyFunction(int)
@@ -152,8 +134,14 @@ class OptionsTests(unittest.TestCase):
         self.assertEqual(postgen, AbstractFactory.z)
 
         # And are available in class Meta
-        self.assertEqual({'x': 1, 'y': lazy, 'y2': lazy2}, AbstractFactory._meta.declarations)
-        self.assertEqual({'z': postgen}, AbstractFactory._meta.postgen_declarations)
+        self.assertEqual(
+            {'x': 1, 'y': lazy, 'y2': lazy2},
+            AbstractFactory._meta.pre_declarations.as_dict(),
+        )
+        self.assertEqual(
+            {'z': postgen},
+            AbstractFactory._meta.post_declarations.as_dict(),
+        )
 
     def test_inherited_declaration_collecting(self):
         lazy = declarations.LazyFunction(int)
@@ -178,8 +166,14 @@ class OptionsTests(unittest.TestCase):
         self.assertEqual(postgen, OtherFactory.z)
 
         # And are available in class Meta
-        self.assertEqual({'x': 1, 'y': lazy, 'a': lazy2}, OtherFactory._meta.declarations)
-        self.assertEqual({'z': postgen, 'b': postgen2}, OtherFactory._meta.postgen_declarations)
+        self.assertEqual(
+            {'x': 1, 'y': lazy, 'a': lazy2},
+            OtherFactory._meta.pre_declarations.as_dict(),
+        )
+        self.assertEqual(
+            {'z': postgen, 'b': postgen2},
+            OtherFactory._meta.post_declarations.as_dict(),
+        )
 
     def test_inherited_declaration_shadowing(self):
         lazy = declarations.LazyFunction(int)
@@ -202,8 +196,14 @@ class OptionsTests(unittest.TestCase):
         self.assertEqual(postgen2, OtherFactory.z)
 
         # And are available in class Meta
-        self.assertEqual({'x': 1, 'y': lazy2}, OtherFactory._meta.declarations)
-        self.assertEqual({'z': postgen2}, OtherFactory._meta.postgen_declarations)
+        self.assertEqual(
+            {'x': 1, 'y': lazy2},
+            OtherFactory._meta.pre_declarations.as_dict(),
+        )
+        self.assertEqual(
+            {'z': postgen2},
+            OtherFactory._meta.post_declarations.as_dict(),
+        )
 
 
 class DeclarationParsingTests(unittest.TestCase):
@@ -358,7 +358,7 @@ class FactoryDefaultStrategyTestCase(unittest.TestCase):
         base.Factory._meta.strategy = self.default_strategy
 
     def test_build_strategy(self):
-        base.Factory._meta.strategy = base.BUILD_STRATEGY
+        base.Factory._meta.strategy = enums.BUILD_STRATEGY
 
         class TestModelFactory(base.Factory):
             class Meta:
@@ -384,7 +384,7 @@ class FactoryDefaultStrategyTestCase(unittest.TestCase):
         self.assertTrue(test_model.id)
 
     def test_stub_strategy(self):
-        base.Factory._meta.strategy = base.STUB_STRATEGY
+        base.Factory._meta.strategy = enums.STUB_STRATEGY
 
         class TestModelFactory(base.Factory):
             class Meta:
@@ -414,7 +414,7 @@ class FactoryDefaultStrategyTestCase(unittest.TestCase):
 
             one = 'one'
 
-        TestModelFactory._meta.strategy = base.CREATE_STRATEGY
+        TestModelFactory._meta.strategy = enums.CREATE_STRATEGY
 
         self.assertRaises(base.StubFactory.UnsupportedStrategy, TestModelFactory)
 
@@ -425,21 +425,21 @@ class FactoryDefaultStrategyTestCase(unittest.TestCase):
 
             one = 'one'
 
-        TestModelFactory._meta.strategy = base.BUILD_STRATEGY
+        TestModelFactory._meta.strategy = enums.BUILD_STRATEGY
         obj = TestModelFactory()
 
         # For stubs, build() is an alias of stub().
         self.assertFalse(isinstance(obj, TestModel))
 
     def test_change_strategy(self):
-        @base.use_strategy(base.CREATE_STRATEGY)
+        @base.use_strategy(enums.CREATE_STRATEGY)
         class TestModelFactory(base.StubFactory):
             class Meta:
                 model = TestModel
 
             one = 'one'
 
-        self.assertEqual(base.CREATE_STRATEGY, TestModelFactory._meta.strategy)
+        self.assertEqual(enums.CREATE_STRATEGY, TestModelFactory._meta.strategy)
 
 
 class FactoryCreationTestCase(unittest.TestCase):
@@ -454,7 +454,7 @@ class FactoryCreationTestCase(unittest.TestCase):
         class TestFactory(base.StubFactory):
             pass
 
-        self.assertEqual(TestFactory._meta.strategy, base.STUB_STRATEGY)
+        self.assertEqual(TestFactory._meta.strategy, enums.STUB_STRATEGY)
 
     def test_inheritance_with_stub(self):
         class TestObjectFactory(base.StubFactory):
@@ -466,7 +466,7 @@ class FactoryCreationTestCase(unittest.TestCase):
         class TestFactory(TestObjectFactory):
             pass
 
-        self.assertEqual(TestFactory._meta.strategy, base.STUB_STRATEGY)
+        self.assertEqual(TestFactory._meta.strategy, enums.STUB_STRATEGY)
 
     def test_stub_and_subfactory(self):
         class StubA(base.StubFactory):
@@ -491,9 +491,9 @@ class FactoryCreationTestCase(unittest.TestCase):
                 model = TestModel
 
             @classmethod
-            def _prepare(cls, create, **kwargs):
-                kwargs['four'] = 4
-                return super(TestModelFactory, cls)._prepare(create, **kwargs)
+            def _generate(cls, create, attrs):
+                attrs['four'] = 4
+                return super(TestModelFactory, cls)._generate(create, attrs)
 
         b = TestModelFactory.build(one=1)
         self.assertEqual(1, b.one)
@@ -523,7 +523,7 @@ class PostGenerationParsingTestCase(unittest.TestCase):
 
             foo = declarations.PostGenerationDeclaration()
 
-        self.assertIn('foo', TestObjectFactory._meta.postgen_declarations)
+        self.assertIn('foo', TestObjectFactory._meta.post_declarations.as_dict())
 
     def test_classlevel_extraction(self):
         class TestObjectFactory(base.Factory):
@@ -533,8 +533,8 @@ class PostGenerationParsingTestCase(unittest.TestCase):
             foo = declarations.PostGenerationDeclaration()
             foo__bar = 42
 
-        self.assertIn('foo', TestObjectFactory._meta.postgen_declarations)
-        self.assertIn('foo__bar', TestObjectFactory._meta.declarations)
+        self.assertIn('foo', TestObjectFactory._meta.post_declarations.as_dict())
+        self.assertIn('foo__bar', TestObjectFactory._meta.post_declarations.as_dict())
 
 
 

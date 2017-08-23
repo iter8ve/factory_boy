@@ -1,24 +1,5 @@
 # -*- coding: utf-8 -*-
-# Copyright (c) 2010 Mark Sandstrom
-# Copyright (c) 2011-2015 Raphaël Barrois
-#
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-# THE SOFTWARE.
+# Copyright: See the LICENSE file.
 
 
 """Additional declarations for "faker" attributes.
@@ -44,7 +25,7 @@ import faker.config
 from . import declarations
 
 
-class Faker(declarations.OrderedDeclaration):
+class Faker(declarations.BaseDeclaration):
     """Wrapper for 'faker' values.
 
     Args:
@@ -70,7 +51,7 @@ class Faker(declarations.OrderedDeclaration):
         subfaker = self._get_faker(self.locale)
         return subfaker.format(self.provider, **kwargs)
 
-    def evaluate(self, sequence, obj, create, extra=None, containers=()):
+    def evaluate(self, instance, step, extra):
         return self.generate(extra or {})
 
     _FAKER_REGISTRY = {}
@@ -92,7 +73,8 @@ class Faker(declarations.OrderedDeclaration):
             locale = cls._DEFAULT_LOCALE
 
         if locale not in cls._FAKER_REGISTRY:
-            cls._FAKER_REGISTRY[locale] = faker.Faker(locale=locale)
+            subfaker = faker.Faker(locale=locale)
+            cls._FAKER_REGISTRY[locale] = subfaker
 
         return cls._FAKER_REGISTRY[locale]
 

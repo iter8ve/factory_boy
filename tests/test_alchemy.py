@@ -1,23 +1,5 @@
 # -*- coding: utf-8 -*-
-# Copyright (c) 2015 Romain Command&
-#
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-# THE SOFTWARE.
+# Copyright: See the LICENSE file.
 
 """Tests for factory_boy/SQLAlchemy interactions."""
 
@@ -26,26 +8,8 @@ from .compat import unittest
 from .compat import mock
 import warnings
 
-
-try:
-    import sqlalchemy
-except ImportError:
-    sqlalchemy = None
-
-if sqlalchemy:
-    from factory.alchemy import SQLAlchemyModelFactory
-    from .alchemyapp import models
-else:
-
-    class Fake(object):
-        class Meta:
-            sqlalchemy_session = None
-
-    models = Fake()
-    models.StandardModel = Fake()
-    models.NonIntegerPk = Fake()
-    models.session = Fake()
-    SQLAlchemyModelFactory = Fake
+from factory.alchemy import SQLAlchemyModelFactory
+from .alchemyapp import models
 
 
 class StandardFactory(SQLAlchemyModelFactory):
@@ -73,7 +37,6 @@ class NoSessionFactory(SQLAlchemyModelFactory):
     id = factory.Sequence(lambda n: n)
 
 
-@unittest.skipIf(sqlalchemy is None, "SQLalchemy not installed.")
 class SQLAlchemyPkSequenceTestCase(unittest.TestCase):
 
     def setUp(self):
@@ -112,7 +75,6 @@ class SQLAlchemyPkSequenceTestCase(unittest.TestCase):
         self.assertEqual(0, std2.id)
 
 
-@unittest.skipIf(sqlalchemy is None, "SQLalchemy not installed.")
 class SQLAlchemySessionPersistenceTestCase(unittest.TestCase):
     def setUp(self):
         super(SQLAlchemySessionPersistenceTestCase, self).setUp()
@@ -190,7 +152,6 @@ class SQLAlchemySessionPersistenceTestCase(unittest.TestCase):
         self.mock_session.flush.assert_called_once_with()
 
 
-@unittest.skipIf(sqlalchemy is None, "SQLalchemy not installed.")
 class SQLAlchemyNonIntegerPkTestCase(unittest.TestCase):
     def setUp(self):
         super(SQLAlchemyNonIntegerPkTestCase, self).setUp()
@@ -225,7 +186,6 @@ class SQLAlchemyNonIntegerPkTestCase(unittest.TestCase):
         self.assertEqual('foo0', nonint2.id)
 
 
-@unittest.skipIf(sqlalchemy is None, "SQLalchemy not installed.")
 class SQLAlchemyNoSessionTestCase(unittest.TestCase):
 
     def test_create_raises_exception_when_no_session_was_set(self):

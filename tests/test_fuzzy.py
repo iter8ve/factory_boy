@@ -1,24 +1,5 @@
 # -*- coding: utf-8 -*-
-# Copyright (c) 2010 Mark Sandstrom
-# Copyright (c) 2011-2015 Raphaël Barrois
-#
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-# THE SOFTWARE.
+# Copyright: See the LICENSE file.
 
 
 import datetime
@@ -27,6 +8,7 @@ import warnings
 
 from factory import compat
 from factory import fuzzy
+from factory import random
 
 from .compat import mock, unittest
 from . import utils
@@ -36,10 +18,10 @@ class FuzzyAttributeTestCase(unittest.TestCase):
     def test_simple_call(self):
         d = fuzzy.FuzzyAttribute(lambda: 10)
 
-        res = d.evaluate(2, None, False)
+        res = utils.evaluate_declaration(d)
         self.assertEqual(10, res)
 
-        res = d.evaluate(2, None, False)
+        res = utils.evaluate_declaration(d)
         self.assertEqual(10, res)
 
 
@@ -47,7 +29,7 @@ class FuzzyChoiceTestCase(unittest.TestCase):
     def test_unbiased(self):
         options = [1, 2, 3]
         d = fuzzy.FuzzyChoice(options)
-        res = d.evaluate(2, None, False)
+        res = utils.evaluate_declaration(d)
         self.assertIn(res, options)
 
     def test_mock(self):
@@ -56,8 +38,8 @@ class FuzzyChoiceTestCase(unittest.TestCase):
 
         d = fuzzy.FuzzyChoice(options)
 
-        with mock.patch('factory.fuzzy._random.choice', fake_choice):
-            res = d.evaluate(2, None, False)
+        with mock.patch('factory.random.randgen.choice', fake_choice):
+            res = utils.evaluate_declaration(d)
 
         self.assertEqual(6, res)
 
@@ -68,11 +50,11 @@ class FuzzyChoiceTestCase(unittest.TestCase):
 
         d = fuzzy.FuzzyChoice(options())
 
-        res = d.evaluate(2, None, False)
+        res = utils.evaluate_declaration(d)
         self.assertIn(res, [0, 1, 2])
 
         # And repeat
-        res = d.evaluate(2, None, False)
+        res = utils.evaluate_declaration(d)
         self.assertIn(res, [0, 1, 2])
 
     def test_lazy_generator(self):
@@ -89,7 +71,7 @@ class FuzzyChoiceTestCase(unittest.TestCase):
         d = fuzzy.FuzzyChoice(opts)
         self.assertFalse(opts.unrolled)
 
-        res = d.evaluate(2, None, False)
+        res = utils.evaluate_declaration(d)
         self.assertIn(res, [1, 2, 3])
         self.assertTrue(opts.unrolled)
 
@@ -99,12 +81,12 @@ class FuzzyIntegerTestCase(unittest.TestCase):
         """Tests all ways of defining a FuzzyInteger."""
         fuzz = fuzzy.FuzzyInteger(2, 3)
         for _i in range(20):
-            res = fuzz.evaluate(2, None, False)
+            res = utils.evaluate_declaration(fuzz)
             self.assertIn(res, [2, 3])
 
         fuzz = fuzzy.FuzzyInteger(4)
         for _i in range(20):
-            res = fuzz.evaluate(2, None, False)
+            res = utils.evaluate_declaration(fuzz)
             self.assertIn(res, [0, 1, 2, 3, 4])
 
     def test_biased(self):
@@ -112,8 +94,8 @@ class FuzzyIntegerTestCase(unittest.TestCase):
 
         fuzz = fuzzy.FuzzyInteger(2, 8)
 
-        with mock.patch('factory.fuzzy._random.randrange', fake_randrange):
-            res = fuzz.evaluate(2, None, False)
+        with mock.patch('factory.random.randgen.randrange', fake_randrange):
+            res = utils.evaluate_declaration(fuzz)
 
         self.assertEqual((2 + 8 + 1) * 1, res)
 
@@ -122,8 +104,8 @@ class FuzzyIntegerTestCase(unittest.TestCase):
 
         fuzz = fuzzy.FuzzyInteger(8)
 
-        with mock.patch('factory.fuzzy._random.randrange', fake_randrange):
-            res = fuzz.evaluate(2, None, False)
+        with mock.patch('factory.random.randgen.randrange', fake_randrange):
+            res = utils.evaluate_declaration(fuzz)
 
         self.assertEqual((0 + 8 + 1) * 1, res)
 
@@ -132,8 +114,8 @@ class FuzzyIntegerTestCase(unittest.TestCase):
 
         fuzz = fuzzy.FuzzyInteger(5, 8, 3)
 
-        with mock.patch('factory.fuzzy._random.randrange', fake_randrange):
-            res = fuzz.evaluate(2, None, False)
+        with mock.patch('factory.random.randgen.randrange', fake_randrange):
+            res = utils.evaluate_declaration(fuzz)
 
         self.assertEqual((5 + 8 + 1) * 3, res)
 
@@ -143,19 +125,19 @@ class FuzzyDecimalTestCase(unittest.TestCase):
         """Tests all ways of defining a FuzzyDecimal."""
         fuzz = fuzzy.FuzzyDecimal(2.0, 3.0)
         for _i in range(20):
-            res = fuzz.evaluate(2, None, False)
+            res = utils.evaluate_declaration(fuzz)
             self.assertTrue(decimal.Decimal('2.0') <= res <= decimal.Decimal('3.0'),
                     "value %d is not between 2.0 and 3.0" % res)
 
         fuzz = fuzzy.FuzzyDecimal(4.0)
         for _i in range(20):
-            res = fuzz.evaluate(2, None, False)
+            res = utils.evaluate_declaration(fuzz)
             self.assertTrue(decimal.Decimal('0.0') <= res <= decimal.Decimal('4.0'),
                     "value %d is not between 0.0 and 4.0" % res)
 
         fuzz = fuzzy.FuzzyDecimal(1.0, 4.0, precision=5)
         for _i in range(20):
-            res = fuzz.evaluate(2, None, False)
+            res = utils.evaluate_declaration(fuzz)
             self.assertTrue(decimal.Decimal('0.54') <= res <= decimal.Decimal('4.0'),
                     "value %d is not between 0.54 and 4.0" % res)
             self.assertTrue(res.as_tuple().exponent, -5)
@@ -165,8 +147,8 @@ class FuzzyDecimalTestCase(unittest.TestCase):
 
         fuzz = fuzzy.FuzzyDecimal(2.0, 8.0)
 
-        with mock.patch('factory.fuzzy._random.uniform', fake_uniform):
-            res = fuzz.evaluate(2, None, False)
+        with mock.patch('factory.random.randgen.uniform', fake_uniform):
+            res = utils.evaluate_declaration(fuzz)
 
         self.assertEqual(decimal.Decimal('10.0'), res)
 
@@ -175,8 +157,8 @@ class FuzzyDecimalTestCase(unittest.TestCase):
 
         fuzz = fuzzy.FuzzyDecimal(8.0)
 
-        with mock.patch('factory.fuzzy._random.uniform', fake_uniform):
-            res = fuzz.evaluate(2, None, False)
+        with mock.patch('factory.random.randgen.uniform', fake_uniform):
+            res = utils.evaluate_declaration(fuzz)
 
         self.assertEqual(decimal.Decimal('8.0'), res)
 
@@ -185,8 +167,8 @@ class FuzzyDecimalTestCase(unittest.TestCase):
 
         fuzz = fuzzy.FuzzyDecimal(8.0, precision=3)
 
-        with mock.patch('factory.fuzzy._random.uniform', fake_uniform):
-            res = fuzz.evaluate(2, None, False)
+        with mock.patch('factory.random.randgen.uniform', fake_uniform):
+            res = utils.evaluate_declaration(fuzz)
 
         self.assertEqual(decimal.Decimal('8.001').quantize(decimal.Decimal(10) ** -3), res)
 
@@ -199,7 +181,7 @@ class FuzzyDecimalTestCase(unittest.TestCase):
         old_traps = decimal_context.traps[decimal.FloatOperation]
         try:
             decimal_context.traps[decimal.FloatOperation] = True
-            fuzz.evaluate(2, None, None)
+            utils.evaluate_declaration(fuzz)
         finally:
             decimal_context.traps[decimal.FloatOperation] = old_traps
 
@@ -217,7 +199,7 @@ class FuzzyDateTestCase(unittest.TestCase):
         fuzz = fuzzy.FuzzyDate(self.jan1, self.jan31)
 
         for _i in range(20):
-            res = fuzz.evaluate(2, None, False)
+            res = utils.evaluate_declaration(fuzz)
             self.assertLessEqual(self.jan1, res)
             self.assertLessEqual(res, self.jan31)
 
@@ -227,7 +209,7 @@ class FuzzyDateTestCase(unittest.TestCase):
             fuzz = fuzzy.FuzzyDate(self.jan1)
 
         for _i in range(20):
-            res = fuzz.evaluate(2, None, False)
+            res = utils.evaluate_declaration(fuzz)
             self.assertLessEqual(self.jan1, res)
             self.assertLessEqual(res, self.jan3)
 
@@ -246,8 +228,8 @@ class FuzzyDateTestCase(unittest.TestCase):
         fake_randint = lambda low, high: (low + high) // 2
         fuzz = fuzzy.FuzzyDate(self.jan1, self.jan31)
 
-        with mock.patch('factory.fuzzy._random.randint', fake_randint):
-            res = fuzz.evaluate(2, None, False)
+        with mock.patch('factory.random.randgen.randint', fake_randint):
+            res = utils.evaluate_declaration(fuzz)
 
         self.assertEqual(datetime.date(2013, 1, 16), res)
 
@@ -257,8 +239,8 @@ class FuzzyDateTestCase(unittest.TestCase):
             fuzz = fuzzy.FuzzyDate(self.jan1)
 
         fake_randint = lambda low, high: (low + high) // 2
-        with mock.patch('factory.fuzzy._random.randint', fake_randint):
-            res = fuzz.evaluate(2, None, False)
+        with mock.patch('factory.random.randgen.randint', fake_randint):
+            res = utils.evaluate_declaration(fuzz)
 
         self.assertEqual(datetime.date(2013, 1, 2), res)
 
@@ -276,7 +258,7 @@ class FuzzyNaiveDateTimeTestCase(unittest.TestCase):
         fuzz = fuzzy.FuzzyNaiveDateTime(self.jan1, self.jan31)
 
         for _i in range(20):
-            res = fuzz.evaluate(2, None, False)
+            res = utils.evaluate_declaration(fuzz)
             self.assertLessEqual(self.jan1, res)
             self.assertLessEqual(res, self.jan31)
 
@@ -286,7 +268,7 @@ class FuzzyNaiveDateTimeTestCase(unittest.TestCase):
             fuzz = fuzzy.FuzzyNaiveDateTime(self.jan1)
 
         for _i in range(20):
-            res = fuzz.evaluate(2, None, False)
+            res = utils.evaluate_declaration(fuzz)
             self.assertLessEqual(self.jan1, res)
             self.assertLessEqual(res, self.jan3)
 
@@ -304,49 +286,49 @@ class FuzzyNaiveDateTimeTestCase(unittest.TestCase):
         fuzz = fuzzy.FuzzyNaiveDateTime(self.jan1, self.jan31, force_year=4)
 
         for _i in range(20):
-            res = fuzz.evaluate(2, None, False)
+            res = utils.evaluate_declaration(fuzz)
             self.assertEqual(4, res.year)
 
     def test_force_month(self):
         fuzz = fuzzy.FuzzyNaiveDateTime(self.jan1, self.jan31, force_month=4)
 
         for _i in range(20):
-            res = fuzz.evaluate(2, None, False)
+            res = utils.evaluate_declaration(fuzz)
             self.assertEqual(4, res.month)
 
     def test_force_day(self):
         fuzz = fuzzy.FuzzyNaiveDateTime(self.jan1, self.jan31, force_day=4)
 
         for _i in range(20):
-            res = fuzz.evaluate(2, None, False)
+            res = utils.evaluate_declaration(fuzz)
             self.assertEqual(4, res.day)
 
     def test_force_hour(self):
         fuzz = fuzzy.FuzzyNaiveDateTime(self.jan1, self.jan31, force_hour=4)
 
         for _i in range(20):
-            res = fuzz.evaluate(2, None, False)
+            res = utils.evaluate_declaration(fuzz)
             self.assertEqual(4, res.hour)
 
     def test_force_minute(self):
         fuzz = fuzzy.FuzzyNaiveDateTime(self.jan1, self.jan31, force_minute=4)
 
         for _i in range(20):
-            res = fuzz.evaluate(2, None, False)
+            res = utils.evaluate_declaration(fuzz)
             self.assertEqual(4, res.minute)
 
     def test_force_second(self):
         fuzz = fuzzy.FuzzyNaiveDateTime(self.jan1, self.jan31, force_second=4)
 
         for _i in range(20):
-            res = fuzz.evaluate(2, None, False)
+            res = utils.evaluate_declaration(fuzz)
             self.assertEqual(4, res.second)
 
     def test_force_microsecond(self):
         fuzz = fuzzy.FuzzyNaiveDateTime(self.jan1, self.jan31, force_microsecond=4)
 
         for _i in range(20):
-            res = fuzz.evaluate(2, None, False)
+            res = utils.evaluate_declaration(fuzz)
             self.assertEqual(4, res.microsecond)
 
     def test_invalid_definition(self):
@@ -364,8 +346,8 @@ class FuzzyNaiveDateTimeTestCase(unittest.TestCase):
         fake_randint = lambda low, high: (low + high) // 2
         fuzz = fuzzy.FuzzyNaiveDateTime(self.jan1, self.jan31)
 
-        with mock.patch('factory.fuzzy._random.randint', fake_randint):
-            res = fuzz.evaluate(2, None, False)
+        with mock.patch('factory.random.randgen.randint', fake_randint):
+            res = utils.evaluate_declaration(fuzz)
 
         self.assertEqual(datetime.datetime(2013, 1, 16), res)
 
@@ -375,8 +357,8 @@ class FuzzyNaiveDateTimeTestCase(unittest.TestCase):
             fuzz = fuzzy.FuzzyNaiveDateTime(self.jan1)
 
         fake_randint = lambda low, high: (low + high) // 2
-        with mock.patch('factory.fuzzy._random.randint', fake_randint):
-            res = fuzz.evaluate(2, None, False)
+        with mock.patch('factory.random.randgen.randint', fake_randint):
+            res = utils.evaluate_declaration(fuzz)
 
         self.assertEqual(datetime.datetime(2013, 1, 2), res)
 
@@ -394,7 +376,7 @@ class FuzzyDateTimeTestCase(unittest.TestCase):
         fuzz = fuzzy.FuzzyDateTime(self.jan1, self.jan31)
 
         for _i in range(20):
-            res = fuzz.evaluate(2, None, False)
+            res = utils.evaluate_declaration(fuzz)
             self.assertLessEqual(self.jan1, res)
             self.assertLessEqual(res, self.jan31)
 
@@ -404,7 +386,7 @@ class FuzzyDateTimeTestCase(unittest.TestCase):
             fuzz = fuzzy.FuzzyDateTime(self.jan1)
 
         for _i in range(20):
-            res = fuzz.evaluate(2, None, False)
+            res = utils.evaluate_declaration(fuzz)
             self.assertLessEqual(self.jan1, res)
             self.assertLessEqual(res, self.jan3)
 
@@ -431,49 +413,49 @@ class FuzzyDateTimeTestCase(unittest.TestCase):
         fuzz = fuzzy.FuzzyDateTime(self.jan1, self.jan31, force_year=4)
 
         for _i in range(20):
-            res = fuzz.evaluate(2, None, False)
+            res = utils.evaluate_declaration(fuzz)
             self.assertEqual(4, res.year)
 
     def test_force_month(self):
         fuzz = fuzzy.FuzzyDateTime(self.jan1, self.jan31, force_month=4)
 
         for _i in range(20):
-            res = fuzz.evaluate(2, None, False)
+            res = utils.evaluate_declaration(fuzz)
             self.assertEqual(4, res.month)
 
     def test_force_day(self):
         fuzz = fuzzy.FuzzyDateTime(self.jan1, self.jan31, force_day=4)
 
         for _i in range(20):
-            res = fuzz.evaluate(2, None, False)
+            res = utils.evaluate_declaration(fuzz)
             self.assertEqual(4, res.day)
 
     def test_force_hour(self):
         fuzz = fuzzy.FuzzyDateTime(self.jan1, self.jan31, force_hour=4)
 
         for _i in range(20):
-            res = fuzz.evaluate(2, None, False)
+            res = utils.evaluate_declaration(fuzz)
             self.assertEqual(4, res.hour)
 
     def test_force_minute(self):
         fuzz = fuzzy.FuzzyDateTime(self.jan1, self.jan31, force_minute=4)
 
         for _i in range(20):
-            res = fuzz.evaluate(2, None, False)
+            res = utils.evaluate_declaration(fuzz)
             self.assertEqual(4, res.minute)
 
     def test_force_second(self):
         fuzz = fuzzy.FuzzyDateTime(self.jan1, self.jan31, force_second=4)
 
         for _i in range(20):
-            res = fuzz.evaluate(2, None, False)
+            res = utils.evaluate_declaration(fuzz)
             self.assertEqual(4, res.second)
 
     def test_force_microsecond(self):
         fuzz = fuzzy.FuzzyDateTime(self.jan1, self.jan31, force_microsecond=4)
 
         for _i in range(20):
-            res = fuzz.evaluate(2, None, False)
+            res = utils.evaluate_declaration(fuzz)
             self.assertEqual(4, res.microsecond)
 
     def test_biased(self):
@@ -482,8 +464,8 @@ class FuzzyDateTimeTestCase(unittest.TestCase):
         fake_randint = lambda low, high: (low + high) // 2
         fuzz = fuzzy.FuzzyDateTime(self.jan1, self.jan31)
 
-        with mock.patch('factory.fuzzy._random.randint', fake_randint):
-            res = fuzz.evaluate(2, None, False)
+        with mock.patch('factory.random.randgen.randint', fake_randint):
+            res = utils.evaluate_declaration(fuzz)
 
         self.assertEqual(datetime.datetime(2013, 1, 16, tzinfo=compat.UTC), res)
 
@@ -493,8 +475,8 @@ class FuzzyDateTimeTestCase(unittest.TestCase):
             fuzz = fuzzy.FuzzyDateTime(self.jan1)
 
         fake_randint = lambda low, high: (low + high) // 2
-        with mock.patch('factory.fuzzy._random.randint', fake_randint):
-            res = fuzz.evaluate(2, None, False)
+        with mock.patch('factory.random.randgen.randint', fake_randint):
+            res = utils.evaluate_declaration(fuzz)
 
         self.assertEqual(datetime.datetime(2013, 1, 2, tzinfo=compat.UTC), res)
 
@@ -504,7 +486,7 @@ class FuzzyTextTestCase(unittest.TestCase):
     def test_unbiased(self):
         chars = ['a', 'b', 'c']
         fuzz = fuzzy.FuzzyText(prefix='pre', suffix='post', chars=chars, length=12)
-        res = fuzz.evaluate(2, None, False)
+        res = utils.evaluate_declaration(fuzz)
 
         self.assertEqual('pre', res[:3])
         self.assertEqual('post', res[-4:])
@@ -518,8 +500,8 @@ class FuzzyTextTestCase(unittest.TestCase):
 
         chars = ['a', 'b', 'c']
         fuzz = fuzzy.FuzzyText(prefix='pre', suffix='post', chars=chars, length=4)
-        with mock.patch('factory.fuzzy._random.choice', fake_choice):
-            res = fuzz.evaluate(2, None, False)
+        with mock.patch('factory.random.randgen.choice', fake_choice):
+            res = utils.evaluate_declaration(fuzz)
 
         self.assertEqual('preaaaapost', res)
 
@@ -530,7 +512,7 @@ class FuzzyTextTestCase(unittest.TestCase):
             yield 'c'
 
         fuzz = fuzzy.FuzzyText(chars=options(), length=12)
-        res = fuzz.evaluate(2, None, False)
+        res = utils.evaluate_declaration(fuzz)
 
         self.assertEqual(12, len(res))
 
@@ -542,26 +524,26 @@ class FuzzyRandomTestCase(unittest.TestCase):
     def test_seeding(self):
         fuzz = fuzzy.FuzzyInteger(1, 1000)
 
-        fuzzy.reseed_random(42)
-        value = fuzz.evaluate(sequence=1, obj=None, create=False)
+        random.reseed_random(42)
+        value = utils.evaluate_declaration(fuzz)
 
-        fuzzy.reseed_random(42)
-        value2 = fuzz.evaluate(sequence=1, obj=None, create=False)
+        random.reseed_random(42)
+        value2 = utils.evaluate_declaration(fuzz)
         self.assertEqual(value, value2)
 
     def test_seeding_warning(self):
         with warnings.catch_warnings(record=True) as w:
             fuzz = fuzzy.FuzzyDate(datetime.date(2013, 1, 1))
-            fuzz.evaluate(None, None, None)
+            utils.evaluate_declaration(fuzz)
             self.assertEqual(1, len(w))
             self.assertIn('factory_boy/issues/331', str(w[-1].message))
 
     def test_reset_state(self):
         fuzz = fuzzy.FuzzyInteger(1, 1000)
 
-        state = fuzzy.get_random_state()
-        value = fuzz.evaluate(sequence=1, obj=None, create=False)
+        state = random.get_random_state()
+        value = utils.evaluate_declaration(fuzz)
 
-        fuzzy.set_random_state(state)
-        value2 = fuzz.evaluate(sequence=1, obj=None, create=False)
+        random.set_random_state(state)
+        value2 = utils.evaluate_declaration(fuzz)
         self.assertEqual(value, value2)

@@ -1,23 +1,5 @@
 # -*- coding: utf-8 -*-
-# Copyright (c) 2013 Romain Command&
-#
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-# THE SOFTWARE.
+# Copyright: See the LICENSE file.
 
 """Tests for factory_boy/MongoEngine interactions."""
 
@@ -26,39 +8,35 @@ import os
 from .compat import unittest
 
 
-try:
-    import mongoengine
-except ImportError:
-    mongoengine = None
+import mongoengine
 
-if os.environ.get('SKIP_MONGOENGINE') == '1':
-    mongoengine = None
+from factory.mongoengine import MongoEngineFactory
 
-if mongoengine:
-    from factory.mongoengine import MongoEngineFactory
+class Address(mongoengine.EmbeddedDocument):
+    street = mongoengine.StringField()
 
-    class Address(mongoengine.EmbeddedDocument):
-        street = mongoengine.StringField()
+class Person(mongoengine.Document):
+    name = mongoengine.StringField()
+    address = mongoengine.EmbeddedDocumentField(Address)
 
-    class Person(mongoengine.Document):
-        name = mongoengine.StringField()
-        address = mongoengine.EmbeddedDocumentField(Address)
+class AddressFactory(MongoEngineFactory):
+    class Meta:
+        model = Address
 
-    class AddressFactory(MongoEngineFactory):
-        class Meta:
-            model = Address
+    street = factory.Sequence(lambda n: 'street%d' % n)
 
-        street = factory.Sequence(lambda n: 'street%d' % n)
+class PersonFactory(MongoEngineFactory):
+    class Meta:
+        model = Person
 
-    class PersonFactory(MongoEngineFactory):
-        class Meta:
-            model = Person
-
-        name = factory.Sequence(lambda n: 'name%d' % n)
-        address = factory.SubFactory(AddressFactory)
+    name = factory.Sequence(lambda n: 'name%d' % n)
+    address = factory.SubFactory(AddressFactory)
 
 
-@unittest.skipIf(mongoengine is None, "mongoengine not installed.")
+SKIP_MONGODB = bool(os.environ.get('SKIP_MONGOENGINE') == '1')
+
+
+@unittest.skipIf(SKIP_MONGODB, "mongodb tests disabled.")
 class MongoEngineTestCase(unittest.TestCase):
 
     db_name = os.environ.get('MONGO_DATABASE', 'factory_boy_test')

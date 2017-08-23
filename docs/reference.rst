@@ -37,6 +37,11 @@ Meta options
 
         .. versionadded:: 2.4.0
 
+    .. method:: get_model_class()
+
+        Returns the actual model class (:attr:`FactoryOptions.model` might be the
+        path to the class; this function will always return a proper class).
+
     .. attribute:: abstract
 
         This attribute indicates that the :class:`Factory` subclass should not
@@ -804,7 +809,7 @@ accept the object being built as sole argument, and return a value.
 
 
 The object passed to :class:`LazyAttribute` is not an instance of the target class,
-but instead a :class:`~containers.LazyStub`: a temporary container that computes
+but instead a :class:`~builder.Resolver`: a temporary container that computes
 the value of all declared fields.
 
 
@@ -1214,7 +1219,7 @@ That declaration takes a single argument, a dot-delimited path to the attribute 
 
 .. code-block:: python
 
-    class UserFactory(factory.Factory)
+    class UserFactory(factory.Factory):
         class Meta:
             model = User
 
@@ -1273,7 +1278,7 @@ Obviously, this "follow parents" ability also handles overriding some attributes
 
 
 This feature is also available to :class:`LazyAttribute` and :class:`LazyAttributeSequence`,
-through the :attr:`~containers.LazyStub.factory_parent` attribute of the passed-in object:
+through the :attr:`~builder.Resolver.factory_parent` attribute of the passed-in object:
 
 .. code-block:: python
 
@@ -1494,6 +1499,45 @@ with the :class:`Dict` and :class:`List` attributes:
         argument, if another type (tuple, set, ...) is required.
 
 
+Maybe
+"""""
+
+.. class:: Maybe(decider, yes_declaration, no_declaration)
+
+Sometimes, the way to build a given field depends on the value of another,
+for instance of a parameter.
+
+In those cases, use the :class:`~factory.Maybe` declaration:
+it takes the name of a "decider" boolean field, and two declarations; depending on
+the value of the field whose name is held in the 'decider' parameter, it will
+apply the effects of one or the other declaration:
+
+.. code-block:: python
+
+    class UserFactory(factory.Factory):
+        class Meta:
+            model = User
+
+        is_active = True
+        deactivation_date = factory.Maybe(
+            'is_active',
+            yes_declaration=None,
+            no_declaration=factory.fuzzy.FuzzyDateTime(timezone.now() - datetime.timedelta(days=10)),
+        )
+
+.. code-block:: pycon
+
+    >>> u = UserFactory(is_active=True)
+    >>> u.deactivation_date
+    None
+    >>> u = UserFactory(is_active=False)
+    >>> u.deactivation_date
+    datetime.datetime(2017, 4, 1, 23, 21, 23, tzinfo=UTC)
+
+.. note:: If the condition for the decider is complex, use a :class:`LazyAttribute`
+          defined in the :attr:`~Factory.Params` section of your factory to
+          handle the computation.
+
 
 Post-generation hooks
 """""""""""""""""""""
@@ -1631,7 +1675,7 @@ Extra kwargs may be passed to the related factory, through the usual ``ATTR__SUB
     >>> City.objects.get(capital_of=england)
     <City: London>
 
-If a value if passed for the :class:`RelatedFactory` attribute, this disables
+If a value is passed for the :class:`RelatedFactory` attribute, this disables
 :class:`RelatedFactory` generation:
 
 .. code-block:: pycon
@@ -1649,7 +1693,8 @@ If a value if passed for the :class:`RelatedFactory` attribute, this disables
 
 
 .. note:: The target of the :class:`RelatedFactory` is evaluated *after* the initial factory has been instantiated.
-          This means that calls to :class:`factory.SelfAttribute` cannot go higher than this :class:`RelatedFactory`:
+          However, the build context is passed down to that factory; this means that calls to
+          :class:`factory.SelfAttribute` *can* go back to the calling factorry's context:
 
           .. code-block:: python
 
@@ -1659,9 +1704,8 @@ If a value if passed for the :class:`RelatedFactory` attribute, this disables
 
                   lang = 'fr'
                   capital_city = factory.RelatedFactory(CityFactory, 'capital_of',
-                      # factory.SelfAttribute('..lang') will crash, since the context of
-                      # ``CountryFactory`` has already been evaluated.
-                      main_lang=factory.SelfAttribute('capital_of.lang'),
+                      # Would also work with SelfAttribute('capital_of.lang')
+                      main_lang=factory.SelfAttribute('..lang'),
                   )
 
 
@@ -1737,7 +1781,7 @@ A decorator is also provided, decorating a single method accepting the same
 PostGenerationMethodCall
 """"""""""""""""""""""""
 
-.. class:: PostGenerationMethodCall(method_name, *args, **kwargs)
+.. class:: PostGenerationMethodCall(method_name, *arg, **kwargs)
 
     .. OHAI_VIM*
 
@@ -1750,9 +1794,9 @@ PostGenerationMethodCall
 
         The name of the method to call on the :attr:`~FactoryOptions.model` object
 
-    .. attribute:: args
+    .. attribute:: arg
 
-        The default set of unnamed arguments to pass to the method given in
+        The default, optional, positional argument to pass to the method given in
         :attr:`method_name`
 
     .. attribute:: kwargs
@@ -1831,40 +1875,9 @@ factory during instantiation.
                                                         'defaultpassword')
 
 
-If instead the :class:`PostGenerationMethodCall` declaration uses two or
-more positional arguments, the overriding value must be an iterable. For
-example, if we declared the ``password`` attribute like the following,
-
-.. code-block:: python
-
-    class UserFactory(factory.Factory):
-        class Meta:
-            model = User
-
-        username = 'user'
-        password = factory.PostGenerationMethodCall('set_password', '', 'sha1')
-
-then we must be cautious to pass in an iterable for the ``password``
-keyword argument when creating an instance from the factory:
-
-.. code-block:: pycon
-
-    >>> UserFactory()                           # Calls user.set_password('', 'sha1')
-    >>> UserFactory(password=('test', 'md5'))   # Calls user.set_password('test', 'md5')
-
-    >>> # Always pass in a good iterable:
-    >>> UserFactory(password=('test',))         # Calls user.set_password('test')
-    >>> UserFactory(password='test')            # Calls user.set_password('t', 'e', 's', 't')
-
-
-.. note:: While this setup provides sane and intuitive defaults for most users,
-          it prevents passing more than one argument when the declaration used
-          zero or one.
-
-          In such cases, users are advised to either resort to the more powerful
-          :class:`PostGeneration` or to add the second expected argument default
-          value to the :class:`PostGenerationMethodCall` declaration
-          (``PostGenerationMethodCall('method', 'x', 'y_that_is_the_default')``)
+.. warning:: In order to keep a consistent and simple API, a :class:`PostGenerationMethodCall`
+             allows *at most one* positional argument; all other parameters should be passed as
+             keyword arguments.
 
 Keywords extracted from the factory arguments are merged into the
 defaults present in the :class:`PostGenerationMethodCall` declaration.

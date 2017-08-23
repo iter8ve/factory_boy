@@ -1,29 +1,23 @@
 # -*- coding: utf-8 -*-
-# Copyright (c) 2010 Mark Sandstrom
-# Copyright (c) 2011-2015 Raphaël Barrois
-#
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-# THE SOFTWARE.
+# Copyright: See the LICENSE file.
 
 import datetime
+import functools
+import warnings
+
+import factory
 
 from .compat import mock
 from . import alter_time
+
+
+def disable_warnings(fun):
+    @functools.wraps(fun)
+    def decorated(*args, **kwargs):
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')
+            return fun(*args, **kwargs)
+    return decorated
 
 
 class MultiModulePatcher(object):
@@ -66,3 +60,11 @@ class mocked_datetime_now(MultiModulePatcher):
     def _build_patcher(self, target_module):
         module_datetime = getattr(target_module, 'datetime')
         return alter_time.mock_datetime_now(self.target_dt, module_datetime)
+
+
+def evaluate_declaration(declaration, force_sequence=None):
+    kwargs = {'attr': declaration}
+    if force_sequence is not None:
+        kwargs['__sequence'] = force_sequence
+
+    return factory.build(dict, **kwargs)['attr']

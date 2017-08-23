@@ -1,34 +1,12 @@
 # -*- coding: utf-8 -*-
-# Copyright (c) 2010 Mark Sandstrom
-# Copyright (c) 2011-2015 Raphaël Barrois
-#
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-# THE SOFTWARE.
+# Copyright: See the LICENSE file.
 
 from __future__ import unicode_literals
 
 import collections
 
 from . import compat
-
-#: String for splitting an attribute name into a
-#: (subfactory_name, subfactory_field) tuple.
-ATTR_SPLITTER = '__'
+from . import enums
 
 
 def extract_dict(prefix, kwargs, pop=True, exclude=()):
@@ -44,10 +22,10 @@ def extract_dict(prefix, kwargs, pop=True, exclude=()):
 
     Returns:
         A new dict, containing values from kwargs and beginning with
-            prefix + ATTR_SPLITTER. That full prefix is removed from the keys
+            prefix + enums.SPLITTER. That full prefix is removed from the keys
             of the returned dict.
     """
-    prefix = prefix + ATTR_SPLITTER
+    prefix = prefix + enums.SPLITTER
     extracted = {}
 
     for key in list(kwargs):
@@ -85,7 +63,7 @@ def multi_extract_dict(prefixes, kwargs, pop=True, exclude=()):
         extracted = extract_dict(prefix, kwargs, pop=pop, exclude=exclude)
         results[prefix] = extracted
         exclude.extend(
-            ['%s%s%s' % (prefix, ATTR_SPLITTER, key) for key in extracted])
+            ['%s%s%s' % (prefix, enums.SPLITTER, key) for key in extracted])
 
     return results
 
@@ -162,3 +140,37 @@ class ResetableIterator(object):
     def reset(self):
         self.next_elements.clear()
         self.next_elements.extend(self.past_elements)
+
+
+class OrderedBase(object):
+    """Marks a class as being ordered.
+
+    Each instance (even from subclasses) will share a global creation counter.
+    """
+
+    CREATION_COUNTER_FIELD = '_creation_counter'
+
+    def __init__(self, **kwargs):
+        super(OrderedBase, self).__init__(**kwargs)
+        if type(self) is not OrderedBase:
+            bases = type(self).__mro__
+            root = bases[bases.index(OrderedBase) - 1]
+            if not hasattr(root, self.CREATION_COUNTER_FIELD):
+                setattr(root, self.CREATION_COUNTER_FIELD, 0)
+            next_counter = getattr(self, self.CREATION_COUNTER_FIELD)
+            setattr(self, self.CREATION_COUNTER_FIELD, next_counter)
+            setattr(root, self.CREATION_COUNTER_FIELD, next_counter + 1)
+
+
+def sort_ordered_objects(items, getter=lambda x: x):
+    """Sort an iterable of OrderedBase instances.
+
+    Args:
+        items (iterable): the objects to sort
+        getter (callable or None): a function to extract the OrderedBase instance from an object.
+
+    Examples:
+        >>> sort_ordered_objects([x, y, z])
+        >>> sort_ordered_objects(v.items(), getter=lambda e: e[1])
+    """
+    return sorted(items, key=lambda x: getattr(getter(x), OrderedBase.CREATION_COUNTER_FIELD, -1))
